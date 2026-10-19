@@ -1,0 +1,9 @@
+{
+  "title": "Flow Forge: Pipes & Pressure",
+  "package": "com.gamefactory.flowforgepipespressure",
+  "coreMechanic": "[object Object]",
+  "screens": ["Home (level map)", "Game", "Win", "Fail", "Shop", "Settings"],
+  "monetization": { "rewardedAds": true, "interstitials": true, "removeAdsIap": true },
+  "analyticsEvents": ["level_start", "level_complete", "level_fail"],
+  "_note": "Filled by the Claude Code builder from the GDD + asset manifest."
+}

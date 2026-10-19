@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Flow Forge: Pipes & Pressure",
+    "slug": "flow-forge-pipes-pressure",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "android": {
+      "package": "com.jeetech.g002",
+      "versionCode": 2,
+      "permissions": [],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "scheme": "flow-forge-pipes-pressure"
+  }
+}

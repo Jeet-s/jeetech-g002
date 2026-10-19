@@ -1,0 +1,169 @@
+{
+  "style": "Premium, industrial-modern workshop lit by cool top-down area lights and a warm rim light, with materials that feel tactile but never noisy: satin-brushed dark steel plates and anodized teal bezels, beveled 2\u20133 px highlights on every hard edge, and subtle micro-scratches catching speculars; pipes are semi-gloss painted metal with crisp chamfers and soft occlusion in joints, liquids read as luminous gel with inner glow and faint bubbles; depth comes from a raised board tray with inner shadow and parallaxed dust motes over a gentle vignette; mood is focused, calm, and technical\u2014high contrast on the puzzle, restrained glow accents elsewhere, everything tuned for quick readability in motion.",
+  "palette": [
+    "#0F1A24",
+    "#274454",
+    "#2EC4FF",
+    "#FF5D5D",
+    "#D97A2B",
+    "#8EA7B2"
+  ],
+  "ui_palette": {
+    "primary": "#D97A2B",
+    "primaryDark": "#A85E1F",
+    "secondary": "#4E5E68",
+    "secondaryDark": "#324049",
+    "accent": "#2EC4FF",
+    "accentDark": "#108AB4",
+    "bgTop": "#22313C",
+    "bgBottom": "#0F1A24",
+    "ink": "#F2F6FA"
+  },
+  "assets": [
+    {
+      "id": "background_chapter_industrial_steel_teal",
+      "kind": "background",
+      "file": "background_chapter_industrial_steel_teal.png",
+      "usage": "chapter and gameplay backdrop",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "id": "board_frame_tray",
+      "kind": "ui",
+      "file": "board_frame_tray.png",
+      "usage": "puzzle board bezel and tray",
+      "width": 512,
+      "height": 508
+    },
+    {
+      "id": "pipe_straight",
+      "kind": "sprite",
+      "file": "pipe_straight.png",
+      "usage": "gameplay tile piece",
+      "width": 512,
+      "height": 225
+    },
+    {
+      "id": "pipe_elbow",
+      "kind": "sprite",
+      "file": "pipe_elbow.png",
+      "usage": "gameplay tile piece",
+      "width": 451,
+      "height": 512
+    },
+    {
+      "id": "pipe_tee",
+      "kind": "sprite",
+      "file": "pipe_tee.png",
+      "usage": "gameplay tile piece",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "id": "tile_blocker",
+      "kind": "sprite",
+      "file": "tile_blocker.png",
+      "usage": "blocked cell iconography on grid",
+      "width": 512,
+      "height": 504
+    },
+    {
+      "id": "endpoint_source_blue",
+      "kind": "sprite",
+      "file": "endpoint_source_blue.png",
+      "usage": "blue fluid source tile",
+      "width": 378,
+      "height": 512
+    },
+    {
+      "id": "endpoint_source_red",
+      "kind": "sprite",
+      "file": "endpoint_source_red.png",
+      "usage": "red fluid source tile",
+      "width": 391,
+      "height": 512
+    },
+    {
+      "id": "endpoint_drain_blue",
+      "kind": "sprite",
+      "file": "endpoint_drain_blue.png",
+      "usage": "blue fluid drain tile",
+      "width": 511,
+      "height": 512
+    },
+    {
+      "id": "endpoint_drain_red",
+      "kind": "sprite",
+      "file": "endpoint_drain_red.png",
+      "usage": "red fluid drain tile",
+      "width": 510,
+      "height": 512
+    },
+    {
+      "id": "hud_top_bar",
+      "kind": "ui",
+      "file": "hud_top_bar.png",
+      "usage": "compact HUD container",
+      "width": 512,
+      "height": 271
+    },
+    {
+      "id": "button_primary_orange",
+      "kind": "ui",
+      "file": "button_primary_orange.png",
+      "usage": "primary CTAs like Hint",
+      "width": 512,
+      "height": 507
+    },
+    {
+      "id": "button_secondary_steel",
+      "kind": "ui",
+      "file": "button_secondary_steel.png",
+      "usage": "secondary CTAs like Restart",
+      "width": 512,
+      "height": 186
+    },
+    {
+      "id": "icon_reward_wrench",
+      "kind": "ui",
+      "file": "icon_reward_wrench.png",
+      "usage": "rewards and progress gates",
+      "width": 449,
+      "height": 512
+    },
+    {
+      "id": "fx_glow_sweep",
+      "kind": "fx",
+      "file": "fx_glow_sweep.png",
+      "usage": "connection completion effect",
+      "width": 70,
+      "height": 512
+    },
+    {
+      "id": "fx_particles_pack",
+      "kind": "fx",
+      "file": "fx_particles_pack.png",
+      "usage": "bubbles and error pulse",
+      "width": 482,
+      "height": 512
+    },
+    {
+      "id": "hud_plate_steel",
+      "kind": "ui",
+      "file": "hud_plate_steel.png",
+      "usage": "plain brushed-steel plate composed from hud_top_bar (HUD, pills, banners)",
+      "width": 512,
+      "height": 128
+    },
+    {
+      "id": "logo",
+      "kind": "ui",
+      "file": "logo.png",
+      "usage": "the game logo \u2014 title/home screen",
+      "width": 1181,
+      "height": 789
+    }
+  ],
+  "legacy": []
+}
