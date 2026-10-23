@@ -102,8 +102,10 @@ export function WinPopup({ visible, stars, coins, onNext, onReplay, onMap, title
 }
 
 /** Level failed: encouraging copy, retry first, optional continue via rewarded ad. */
-export function FailPopup({ visible, message = "So close! Try again?", onRetry, onContinue, onMap }: {
+export function FailPopup({ visible, message = "So close! Try again?", onRetry, onContinue, onMap, extraMoves = 0, onExtraMoves }: {
   visible: boolean; message?: string; onRetry: () => void; onContinue?: () => void; onMap?: () => void;
+  /** Banked +5 Moves boosters: offered first when the player has one. */
+  extraMoves?: number; onExtraMoves?: () => void;
 }) {
   useEffect(() => {
     if (visible) { play("fail"); haptic("warning"); }
@@ -111,14 +113,40 @@ export function FailPopup({ visible, message = "So close! Try again?", onRetry, 
   return (
     <Popup visible={visible} title="Out of moves">
       <Text style={styles.msg}>{message}</Text>
-      <GameButton label="Try Again" variant="primary" size="lg" icon="restart" onPress={onRetry} />
+      {onExtraMoves && extraMoves > 0 ? (
+        <GameButton style={{ marginBottom: 12 }} label={`Use +5 Moves (${extraMoves} left)`} variant="primary" size="lg" icon="plus" onPress={onExtraMoves} />
+      ) : null}
+      <GameButton label="Try Again" variant={onExtraMoves && extraMoves > 0 ? "secondary" : "primary"} size="lg" icon="restart" onPress={onRetry} />
       {onContinue ? <GameButton style={{ marginTop: 12 }} icon="play" label="Continue (watch ad)" variant="secondary" onPress={onContinue} /> : null}
       {onMap ? <GameButton style={{ marginTop: 12 }} size="sm" variant="tertiary" icon="map" label="Back to map" onPress={onMap} /> : null}
     </Popup>
   );
 }
 
+/** Pause: the level freezes under a scrim until Resume; restart, settings and the map sit underneath. */
+export function PausePopup({ visible, level, moves, budget, onResume, onRestart, onSettings, onMap }: {
+  visible: boolean; level: number; moves: number; budget: number;
+  onResume: () => void; onRestart: () => void; onSettings: () => void; onMap: () => void;
+}) {
+  return (
+    <Popup visible={visible} title="Paused" onClose={onResume}>
+      <Well style={styles.pauseInfo} radius={14}>
+        <Icon name="pause" size={26} color={palette.accent} stroke={3} />
+        <Text style={styles.pauseText}>Level {level} · {Math.max(0, budget - moves)} moves left</Text>
+      </Well>
+      <GameButton label="Resume" variant="primary" size="lg" icon="play" onPress={onResume} />
+      <View style={styles.row}>
+        <GameButton style={{ flex: 1 }} size="sm" variant="secondary" icon="restart" label="Restart" onPress={onRestart} />
+        <GameButton style={{ flex: 1 }} size="sm" variant="secondary" icon="gear" label="Settings" onPress={onSettings} />
+      </View>
+      <GameButton style={{ marginTop: 12 }} size="sm" variant="tertiary" icon="map" label="Level map" onPress={onMap} />
+    </Popup>
+  );
+}
+
 const styles = StyleSheet.create({
+  pauseInfo: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 14, marginBottom: 16 },
+  pauseText: { fontFamily: fonts.display, fontSize: 18, color: palette.ink, includeFontPadding: false },
   starField: { alignItems: "center", justifyContent: "center", marginTop: 2 },
   burst: { position: "absolute", width: 230, height: 230, alignItems: "center", justifyContent: "center", borderRadius: 115, overflow: "hidden" },
   reward: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginVertical: 16, paddingVertical: 12 },

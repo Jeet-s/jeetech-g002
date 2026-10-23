@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { BlurMask, Canvas, DashPathEffect, Path, Skia } from "@shopify/react-native-skia";
+import { Canvas, DashPathEffect, Path, Skia } from "@shopify/react-native-skia";
 import Animated, { Easing, useAnimatedStyle, useDerivedValue, useSharedValue, withRepeat, withSpring, withTiming } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { MiniStars } from "./Stars";
@@ -148,9 +148,8 @@ export function LevelMap({
       {header}
       <Canvas style={{ position: "absolute", left: 0, top: 0, width, height }} pointerEvents="none">
         {/* steel pipe trail: soft occlusion → dark casing → satin body → top highlight, with collar joints */}
-        <Path path={path} style="stroke" strokeWidth={26} color="rgba(0,0,0,0.35)" strokeCap="round">
-          <BlurMask blur={6} style="normal" />
-        </Path>
+        <Path path={path} style="stroke" strokeWidth={32} color="rgba(0,0,0,0.12)" strokeCap="round" />
+        <Path path={path} style="stroke" strokeWidth={26} color="rgba(0,0,0,0.2)" strokeCap="round" />
         <Path path={path} style="stroke" strokeWidth={20} color="#1A252D" strokeCap="round" />
         <Path path={path} style="stroke" strokeWidth={15} color="#3E4E59" strokeCap="round" />
         <Path path={path} style="stroke" strokeWidth={4} color="rgba(200,225,235,0.28)" strokeCap="round" />
@@ -158,9 +157,8 @@ export function LevelMap({
           <DashPathEffect intervals={[4, 38]} />
         </Path>
         {/* cleared stretch: luminous cyan core with a flowing light */}
-        <Path path={done} style="stroke" strokeWidth={8} color="rgba(46,196,255,0.35)" strokeCap="round">
-          <BlurMask blur={6} style="normal" />
-        </Path>
+        <Path path={done} style="stroke" strokeWidth={14} color="rgba(46,196,255,0.12)" strokeCap="round" />
+        <Path path={done} style="stroke" strokeWidth={9} color="rgba(46,196,255,0.22)" strokeCap="round" />
         <Path path={done} style="stroke" strokeWidth={5} color="#1C7FA6" strokeCap="round" />
         <Path path={done} style="stroke" strokeWidth={5} color="#9BE6FF" strokeCap="round">
           <DashPathEffect intervals={[16, FLOW_PERIOD - 16]} phase={phase} />

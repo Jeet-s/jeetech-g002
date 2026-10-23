@@ -3,17 +3,19 @@ import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Background, Confetti, FailPopup, FloatingText, GameButton, HudBar, Icon, SteelPlate, TutorialHand, WinPopup, feedback, fonts, motion, palette, type, useShake,
+  Background, BoosterSlot, Confetti, FailPopup, FloatingText, GameButton, HudBar, Icon, PausePopup, SteelPlate, TutorialHand, WinPopup, feedback, fonts, motion, palette, type, useShake,
 } from "../ui";
 import { LEVELS, movesAllowed, starsFor } from "../game/levels";
-import { flow, tapsBetween } from "../game/engine";
+import { flow, isWon, tapsBetween } from "../game/engine";
 import { PipeBoard, boardChrome, boardView } from "../game/PipeBoard";
 import { goalFor, routeOf } from "../game/board";
 import { DESIGNS } from "../game/designs";
+import { owned } from "../game/boosters";
 import { store } from "../modules/store";
 import { ads } from "../modules/ads";
 import { analytics } from "../modules/analytics";
 import { useBannerHeight } from "../modules/layout";
+import { qa, reportNext } from "../modules/qa";
 
 /** One Flow Forge level: rotate pipes to route every fluid to its drain. */
 export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo }: {
@@ -30,14 +32,23 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   // Mirror of `rot` read synchronously by tap() so back-to-back press-ins (the
   // board spins optimistically on touch) never act on a stale rotation.
   const rotRef = useRef<number[]>(rot);
-  const [history, setHistory] = useState<number[][]>([]);
+  // Undo stack: the board and the move count before each change (a Wrench changes the board but spends no move).
+  const [history, setHistory] = useState<{ rot: number[]; moves: number }[]>([]);
   const [moves, setMoves] = useState(0);
   const [result, setResult] = useState<"win" | "fail" | null>(null);
   const [hintIdx, setHintIdx] = useState<number | null>(null);
   const [floater, setFloater] = useState(0);
   const [winPulse, setWinPulse] = useState(0);
   const [area, setArea] = useState({ y: 0, h: 0 });
-  const [hints, setHints] = useState(store.get().hints ?? 3);
+  const [bank, setBank] = useState(store.get());
+  useEffect(() => store.subscribe(setBank), []);
+  const hints = owned(bank, "hint");
+  // +5 Moves boosters used on this level (added to the budget).
+  const [bonus, setBonus] = useState(0);
+  const [paused, setPaused] = useState(false);
+  // Booster / hint result line that floats up off the board.
+  const [boost, setBoost] = useState<{ text: string; k: number; color?: string } | null>(null);
+  const say = (text: string, color?: string) => setBoost((b) => ({ text, k: (b?.k ?? 0) + 1, color }));
   const [failing, setFailing] = useState(false);
   const { style: shakeStyle, shake } = useShake(12);
   // Fail beat: the playfield dims and an "Out of moves" banner slams in before the popup.
@@ -64,7 +75,7 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   const later = (fn: () => void, ms: number) => { timers.current.push(setTimeout(fn, ms)); };
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current = []; }, []);
 
-  const budget = movesAllowed(level);
+  const budget = movesAllowed(level) + bonus;
   const stars = starsFor(moves, level.par);
   const reward = 15 + stars * 15;
   const fv = useMemo(() => flow(level, rot), [level, rot]);
@@ -85,10 +96,35 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     return Math.max(34, t);
   }, [availW, availH, view]);
 
+  // QA level replay: after the board settles and after every accepted move, report the window-pixel centre of
+  // the next pipe the solver turns toward the stored solution (measured on the real on-screen board).
+  const boardRef = useRef<React.ComponentRef<typeof View>>(null);
+  const qaMode = qa.level === level.number && !demo;
+  function qaReport(r: number[]) {
+    if (!qaMode) return;
+    const next = isWon(level, r) ? undefined : level.rotatable.find((i) => tapsBetween(level.cells[i].m, r[i], level.solution[i]) > 0);
+    if (next == null) { reportNext(level.number, null); return; }
+    // Measure after this move's re-render has laid out (the coach text above the board can change height).
+    later(() => boardRef.current?.measureInWindow((x, y) => {
+      const { edge: e } = boardChrome(tile);
+      reportNext(level.number, {
+        x: x + e + ((next % level.w) - view.c0) * tile + tile / 2,
+        y: y + e + (Math.floor(next / level.w) - view.r0) * tile + tile / 2,
+      });
+    }), 80);
+  }
+  // First report once the drop-in has finished, so the measured board is at rest.
+  useEffect(() => {
+    if (!qaMode || area.h <= 0) return;
+    const t = setTimeout(() => qaReport(rotRef.current), motion.boardDrop + 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qaMode, area.h, tile]);
+
   useEffect(() => {
     const start = level.cells.map((c) => c.r);
     rotRef.current = start;
-    setRot(start); setHistory([]); setMoves(0); setResult(null); setHintIdx(null); setWinPulse(0);
+    setRot(start); setHistory([]); setMoves(0); setResult(null); setHintIdx(null); setWinPulse(0); setBonus(0); setPaused(false);
     failDim.value = 0; failBanner.value = 0;
     analytics.track("level_start", { level: level.number });
     drop.value = 0;
@@ -110,9 +146,7 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     const first = level.number === 1 && !store.get().tutorialDone;
     // Earnable hints: +1 free hint for every 5 levels solved (first clear only).
     if (level.number % 5 === 0 && store.get().level <= level.number && !demo) {
-      const h = (store.get().hints ?? 3) + 1;
-      store.set({ hints: h });
-      setHints(h);
+      store.set({ hints: (store.get().hints ?? 3) + 1 });
     }
     later(() => {
       setResult("win");
@@ -129,16 +163,22 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   }
 
   function tap(i: number) {
-    if (result || failing || level.cells[i].f) return;
+    if (result || failing || paused || level.cells[i].f) return;
     const prev = rotRef.current;
     const next = prev.slice();
     next[i] = (next[i] + 1) % 4;
+    apply(prev, next, moves + 1);
+  }
+
+  /** Commit a new board (a turn, or a Wrench fix that spends no move), then check win / out of moves. */
+  function apply(prev: number[], next: number[], used: number) {
     rotRef.current = next;
-    setHistory((h) => [...h, prev]);
+    setHistory((h) => [...h, { rot: prev, moves }]);
     setRot(next);
     setHintIdx(null);
-    const used = moves + 1;
     setMoves(used);
+    analytics.qa("move", { level: level.number });
+    qaReport(next);
     const nf = flow(level, next);
     const won = nf.satisfied.length > 0 && nf.satisfied.every(Boolean);
     if (won) {
@@ -161,33 +201,40 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     feedback("error", "error");
     failDim.value = withTiming(0.6, { duration: 200, easing: Easing.out(Easing.quad) });
     failBanner.value = withDelay(120, withTiming(1, { duration: 260, easing: Easing.out(Easing.back(1.8)) }));
-    later(() => setResult("fail"), 1050);
+    const seq = ++failSeq.current;
+    later(() => { if (failSeq.current === seq) setResult("fail"); }, 1050);
     analytics.track("level_fail", { level: level.number });
   }
 
+  // Bumped by clearFail so a pending "fail" popup never lands after +5 Moves / restart rescued the level.
+  const failSeq = useRef(0);
   function clearFail() {
+    failSeq.current++;
     setFailing(false);
     failDim.value = withTiming(0, { duration: 220 });
     failBanner.value = withTiming(0, { duration: 160 });
   }
 
   function undo() {
-    if (!history.length || result) return;
+    if (!history.length || result || failing) return;
     feedback("move", "select");
     const prev = history[history.length - 1];
-    rotRef.current = prev;
-    setRot(prev);
+    rotRef.current = prev.rot;
+    setRot(prev.rot);
     setHistory((h) => h.slice(0, -1));
-    setMoves((m) => Math.max(0, m - 1));
+    setMoves(prev.moves);
     setHintIdx(null);
+    analytics.qa("move", { level: level.number });
+    qaReport(prev.rot);
   }
 
   function restart() {
     feedback("tap", "medium");
     const start = level.cells.map((c) => c.r);
     rotRef.current = start;
-    setRot(start); setHistory([]); setMoves(0); setResult(null); setHintIdx(null);
+    setRot(start); setHistory([]); setMoves(0); setResult(null); setHintIdx(null); setBonus(0); setPaused(false);
     clearFail();
+    qaReport(start);
   }
 
   // Hint = the mis-rotated pipe that is furthest from lining up (most useful to fix).
@@ -200,17 +247,43 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     return best;
   }, [level, rot]);
 
+  // Boosters spend from the bank; with none left the slot offers one free with a video the player chooses to watch.
+  function spend(key: "hints" | "wrenches" | "extraMoves", use: () => void) {
+    const have = store.get()[key] ?? 0;
+    if (have > 0) { store.set({ [key]: have - 1 }); use(); return; }
+    if (!ads.showRewarded(use)) say("None left. Get more in the Shop", palette.danger);
+  }
+
   function hint() {
-    if (wrongTile < 0) return;
-    const show = () => { setHintIdx(wrongTile); feedback("pop", "medium"); };
-    if (hints > 0) {
-      // Spend a banked hint — free, no ad.
-      const h = hints - 1;
-      setHints(h);
-      store.set({ hints: h });
-      show();
-    } else if (!ads.showRewarded(show)) show();
+    if (wrongTile < 0 || result || failing) return;
+    spend("hints", () => { setHintIdx(wrongTile); feedback("pop", "medium"); say("Turn the ringed pipe"); });
     analytics.track("hint_view", { level: level.number });
+  }
+
+  // Wrench: the most-wrong pipe snaps into its solved rotation and no move is spent.
+  function wrench() {
+    if (wrongTile < 0 || result || failing) return;
+    const i = wrongTile;
+    spend("wrenches", () => {
+      const prev = rotRef.current;
+      const next = prev.slice();
+      next[i] = level.solution[i];
+      feedback("success", "medium");
+      say("Wrench! Pipe fixed", palette.coin);
+      apply(prev, next, moves);
+    });
+    analytics.track("booster_use", { level: level.number, booster: "wrench" });
+  }
+
+  function addMoves() {
+    if (result) return;
+    spend("extraMoves", () => {
+      setBonus((b) => b + 5);
+      if (failing) { setResult(null); clearFail(); }
+      feedback("pop", "medium");
+      say("+5 moves!", palette.accent);
+    });
+    analytics.track("booster_use", { level: level.number, booster: "moves" });
   }
 
   // Level 1 is GUIDED: a dotted line shows where the water must go, the next
@@ -241,7 +314,7 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
         <HudBar
           moves={moves} budget={budget} par={level.par}
           title={`Level ${level.number}`} chapter={level.chapter}
-          onBack={onExit} onSettings={onSettings}
+          onBack={onExit} onPause={() => { feedback("tap", "light"); setPaused(true); }}
         />
       </View>
       {guided ? (
@@ -267,6 +340,7 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
       <View style={styles.boardArea} onLayout={(e) => setArea({ y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height })}>
         {area.h > 0 ? (
           <Animated.View style={[dropStyle, shakeStyle]}>
+            <View ref={boardRef} collapsable={false}>
             <PipeBoard
               def={level}
               rot={rot}
@@ -275,9 +349,10 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
               onTapCell={tap}
               hintIndex={hintIdx}
               winPulse={winPulse}
-              interactive={!result && !failing && !demo}
+              interactive={!result && !failing && !paused && !demo}
               guide={guide}
             />
+            </View>
             <Animated.View pointerEvents="none" style={[styles.flash, { borderRadius: edge }, flashStyle]} />
             <Animated.View pointerEvents="none" style={[styles.failDim, { borderRadius: edge }, failDimStyle]} />
           </Animated.View>
@@ -291,15 +366,23 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
       </View>
 
       {handTile >= 0 && area.h > 0 ? <TutorialHand key={handTile} from={tileCenter(handTile)} /> : null}
+      {boost ? (
+        <FloatingText key={`b${boost.k}`} text={boost.text} color={boost.color ?? palette.ink} x={width / 2} y={boardTop + 10} duration={1400} />
+      ) : null}
+      {hintIdx != null && !result && area.h > 0 ? <TutorialHand key={`h${hintIdx}`} from={tileCenter(hintIdx)} /> : null}
       {floater ? (
         <FloatingText key={floater} text="Flow complete!" color={palette.accent} x={width / 2} y={boardTop - 6} duration={1500} />
       ) : null}
       <Confetti trigger={winPulse} count={70} origin={{ x: width / 2, y: area.y + area.h / 2 }} />
 
       <View style={[styles.actions, { paddingBottom: insets.bottom + bannerH + 12 }]}>
-        <GameButton style={{ flex: 1 }} size="md" variant="tertiary" icon="undo" label="Undo" onPress={undo} disabled={!history.length} />
-        <GameButton style={{ flex: 1 }} size="md" variant="secondary" icon="restart" label="Restart" onPress={restart} />
-        <GameButton style={{ flex: 1.2 }} size="md" variant="primary" icon="bulb" label="Hint" badge={hints > 0 ? hints : "▶"} onPress={hint} disabled={wrongTile < 0 || !!result} />
+        <GameButton style={{ flex: 0.8 }} size="md" variant="tertiary" icon="undo" onPress={undo} disabled={!history.length || failing} />
+        <GameButton style={{ flex: 0.8 }} size="md" variant="secondary" icon="restart" onPress={restart} />
+        <View style={styles.tray}>
+          <BoosterSlot style={{ flex: 1 }} icon="bulb" label="Hint" count={hints > 0 ? hints : "▶"} onPress={hint} disabled={wrongTile < 0 || !!result || failing} />
+          <BoosterSlot style={{ flex: 1 }} icon="wrench-art" label="Wrench" count={owned(bank, "wrench") || "▶"} onPress={wrench} disabled={wrongTile < 0 || !!result || failing} />
+          <BoosterSlot style={{ flex: 1 }} icon="plus" label="+5 Moves" count={owned(bank, "moves") || "▶"} onPress={addMoves} disabled={!!result} />
+        </View>
       </View>
 
       <WinPopup
@@ -317,6 +400,16 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
         onRetry={restart}
         onContinue={() => ads.showRewarded(() => { setResult(null); clearFail(); setMoves((m) => Math.max(0, m - 6)); })}
         onMap={onExit}
+        extraMoves={owned(bank, "moves")}
+        onExtraMoves={addMoves}
+      />
+      <PausePopup
+        visible={paused && !result}
+        level={level.number} moves={moves} budget={budget}
+        onResume={() => setPaused(false)}
+        onRestart={restart}
+        onSettings={() => { setPaused(false); onSettings(); }}
+        onMap={() => { setPaused(false); onExit(); }}
       />
     </View>
   );
@@ -338,5 +431,6 @@ const styles = StyleSheet.create({
   coachIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.accent, alignItems: "center", justifyContent: "center" },
   coachTitle: { fontFamily: fonts.display, fontSize: 18, color: palette.ink, includeFontPadding: false },
   coachSub: { ...type.body, fontSize: 14, lineHeight: 18, color: palette.inkSoft },
-  actions: { flexDirection: "row", gap: 10, paddingHorizontal: 12, paddingTop: 6 },
+  actions: { flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 10, paddingTop: 10 },
+  tray: { flex: 3.4, flexDirection: "row", gap: 6 },
 });

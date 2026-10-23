@@ -1,19 +1,35 @@
 {
   "expo": {
-    "name": "Flow Forge: Pipes & Pressure",
+    "name": "Flow Forge: Pipe Puzzle Game",
     "slug": "flow-forge-pipes-pressure",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "orientation": "portrait",
     "android": {
       "package": "com.jeetech.g002",
-      "versionCode": 2,
+      "versionCode": 4,
       "permissions": [],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.SYSTEM_ALERT_WINDOW"
-      ]
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/store/adaptive-foreground.png",
+        "backgroundColor": "#253547"
+      },
+      "googleServicesFile": "./google-services.json"
     },
-    "scheme": "flow-forge-pipes-pressure"
+    "scheme": "flow-forge-pipes-pressure",
+    "icon": "./assets/store/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.jeetech.g002",
+      "buildNumber": "3.29877120",
+      "appleTeamId": "BJ9K59US7U",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "icon": "./assets/ios-icon.png"
+    }
   }
 }

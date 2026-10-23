@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { Panel } from "./Panel";
@@ -13,6 +14,9 @@ import { feedback, play } from "../audio/sfx";
  */
 export function Popup({ visible, title, onClose, children }: { visible: boolean; title?: string; onClose?: () => void; children: React.ReactNode }) {
   const s = useSharedValue(0);
+  // iOS: keep the sheet clear of the Dynamic Island / status bar and home indicator (the scrim stays full-bleed).
+  const insets = useSafeAreaInsets();
+  const safe = Platform.OS === "ios" ? { paddingTop: 22 + insets.top, paddingBottom: 22 + insets.bottom } : null;
   useEffect(() => {
     if (visible) {
       play("whoosh", 0.6);
@@ -28,7 +32,7 @@ export function Popup({ visible, title, onClose, children }: { visible: boolean;
         <LinearGradient colors={["rgba(8,16,22,0.80)", "rgba(6,12,17,0.90)"]} style={StyleSheet.absoluteFill} />
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
-      <View style={styles.center} pointerEvents="box-none">
+      <View style={[styles.center, safe]} pointerEvents="box-none">
         <Animated.View style={[styles.cardWrap, card]}>
           <Panel>
             {title ? <Text style={[type.title, styles.title, onClose ? styles.titlePad : null]}>{title}</Text> : null}

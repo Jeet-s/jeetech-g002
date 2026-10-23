@@ -42,10 +42,10 @@ function Segment({ fill, lit, accent }: { fill: number; lit: boolean; accent: st
  * bar at the top of the gameplay screen.
  */
 export function HudBar({
-  moves, budget, par, accent = palette.accent, title, chapter, onBack, onSettings,
+  moves, budget, par, accent = palette.accent, title, chapter, onBack, onSettings, onPause,
 }: {
   moves: number; budget: number; par: number; accent?: string;
-  title?: string; chapter?: string; onBack?: () => void; onSettings?: () => void;
+  title?: string; chapter?: string; onBack?: () => void; onSettings?: () => void; onPause?: () => void;
 }) {
   const { three, two } = starBands(par, budget);
   const left = Math.max(0, budget - moves);
@@ -55,13 +55,15 @@ export function HudBar({
   const fills = [band(two, budget), band(three, two), band(0, three)]; // star 1, 2, 3
 
   // Counter flip: the number tips over on its X axis and pops (100 ms) each time the moves change.
+  // flip rests at 1 (face-on): starting at 0 left the number edge-on — invisible — until the first move.
+  // Each flip starts from 0.45 (~50°) so the count stays readable on every frame.
   const pop = useSharedValue(0);
-  const flip = useSharedValue(0);
+  const flip = useSharedValue(1);
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
     pop.value = withSequence(withTiming(1, { duration: 90 }), withSpring(0, { damping: 10, stiffness: 260 }));
-    flip.value = 0;
+    flip.value = 0.45;
     flip.value = withTiming(1, { duration: 110, easing: Easing.out(Easing.quad) });
   }, [moves, pop, flip]);
   const numStyle = useAnimatedStyle(() => ({
@@ -86,7 +88,7 @@ export function HudBar({
             <Text style={styles.title} numberOfLines={1}>{title}</Text>
             {chapter ? <Text style={styles.chapter} numberOfLines={1}>{chapter}</Text> : null}
           </View>
-          {onSettings ? <SquareIcon name="gear" onPress={onSettings} label="Settings" /> : null}
+          {onPause ? <SquareIcon name="pause" onPress={onPause} label="Pause" /> : onSettings ? <SquareIcon name="gear" onPress={onSettings} label="Settings" /> : null}
         </View>
       ) : null}
       <View style={styles.row}>
@@ -116,7 +118,7 @@ export function HudBar({
 }
 
 /** Compact square steel icon button (48dp) used in the HUD. */
-function SquareIcon({ name, onPress, label }: { name: "back" | "gear"; onPress: () => void; label: string }) {
+function SquareIcon({ name, onPress, label }: { name: "back" | "gear" | "pause"; onPress: () => void; label: string }) {
   const s = useSharedValue(0);
   const st = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.04 * s.value }] }));
   return (
@@ -129,7 +131,7 @@ function SquareIcon({ name, onPress, label }: { name: "back" | "gear"; onPress: 
       accessibilityLabel={label}
     >
       <Animated.View style={[styles.square, st]}>
-        <Icon name={name} size={22} color={palette.ink} />
+        <Icon name={name} size={22} color={palette.ink} stroke={name === "pause" ? 3.4 : 2.3} />
       </Animated.View>
     </Pressable>
   );

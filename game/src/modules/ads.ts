@@ -5,7 +5,9 @@ import mobileAds, {
   RewardedAd,
   RewardedAdEventType,
 } from "react-native-google-mobile-ads";
+import { Platform } from "react-native";
 import monetization from "../../monetization.json";
+import monetizationIos from "../../monetization.ios.json";
 import { store } from "./store";
 import { analytics } from "./analytics";
 
@@ -22,7 +24,9 @@ const MIN_LEVELS_BETWEEN_INTERSTITIALS = 4;
 const FIRST_INTERSTITIAL_LEVEL = 10;
 const NO_BANNER_UNTIL_LEVEL = 5;
 
-const ids = monetization.admob;
+// iOS serves from its own AdMob app (never the Android unit ids). There is no
+// App Tracking Transparency prompt, so the IDFA is never available to the SDK.
+const ids = Platform.OS === "ios" ? monetizationIos.admob : monetization.admob;
 let ready = false;
 let lastInterstitialAt = Date.now() / 1000; // grace period after launch
 let levelsSinceInterstitial = 0;

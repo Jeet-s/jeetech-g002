@@ -10,7 +10,7 @@
       "rotate tile puzzle"
     ]
   },
-  "title": "Flow Forge: Logic Puzzles Offl",
+  "title": "Flow Forge: Pipe Puzzle Game",
   "category": "Puzzle",
   "keywords": [
     "logic puzzles offline",
@@ -19,21 +19,21 @@
     "pipe puzzle",
     "flow puzzle",
     "rotate tile puzzle",
-    "logic puzzles for adults",
+    "logic puzzles",
     "logic puzzle games",
     "pipe puzzle games offline",
     "pipe puzzle line connect"
   ],
-  "release_notes": "Launch version: 150+ offline levels, Daily Puzzle, Freeze boost, smart tiered hints, ad-light policy (no forced interstitials for first 25 levels), optional Ad-Free IAP, accessibility themes, cloud sync.",
+  "release_notes": "Initial release with 30 handcrafted levels across five chapters, rotate-to-connect pipe mechanics (including splitters, bolted and decoy pipes, cross-overpass, and multi-fluid routing), offline play, hints, undo, restart, star ratings, coins, and ad settings that start after level 10. Optional Remove Ads and coin packs included.",
   "content_rating": "Everyone",
-  "full_description": "Logic puzzles offline meet real-time pipe routing in Flow Forge: Pipes & Pressure — a clean, modern puzzler you can pick up anytime. Rotate tiles, draw short connectors, and guide colorful flow to matching sinks before time runs out. Plan, freeze, and reroute under pressure in snack-sized stages designed for satisfying wins.\n\nWhat it is\nFlow Forge is a handcrafted pipe puzzle game built for quick, focused sessions. You’ll rotate tile pieces, place limited connector segments to bridge gaps, and balance multiple colors as fluid begins to move. Use the Freeze boost to pause flow, study the grid, and make precise adjustments. Every level is verified to have a single, fair solution.\n\nPlay your way\n• 150+ unique levels at install — all playable offline\n• Chapters evolve from basics to valves, splitters, and color gates\n• Difficulty that ramps gently, with optional expert targets\n• Undo anytime; smart hints explain the reasoning step-by-step\n• Ad-light by design with a simple one-tap Ad-Free option\n\nCore features\n• Real-time flow puzzle: rotate, draw, and adapt on the fly\n• Freeze to plan: pause pressure, then perfect the route\n• Limited connectors add tactical choice without clutter\n• Color-matching rules and pressure valves keep it fresh\n• Earn up to 3 wrenches for speed, no leaks, and efficiency\n• Daily Puzzle delivers a fresh challenge with a gentle streak system\n• Accessibility: color/shape-coded ports, colorblind themes, large touch targets\n\nFair and focused\n• No energy timers; progress at your pace\n• Optional rewarded hints or Freeze; never required to win\n• Honest ads policy: no forced interstitials for the first 25 levels\n• One-time Ad-Free IAP removes interstitials and ad prompts you don’t opt into\n\nControls that feel right\n• Tap or drag to rotate tiles with haptic ticks\n• Draw precise connector segments that snap to ports\n• Long-press for Freeze and helpful tooltips\n• Pinch to zoom; two-finger tap to undo\n\nProgression that respects your time\n• Collect wrenches to unlock new chapters\n• Chase expert badges: beat target times with minimal connectors\n• Unlock cosmetic pipe skins and fluid trails with milestones or optional packs\n\nIf you enjoy a thoughtful flow puzzle with crisp feedback, a calm atmosphere, and constraints that make solutions click, Flow Forge is for you. Install now and unwind with logic puzzles offline — rotate, connect, and let it flow.",
+  "full_description": "Logic puzzles offline you can play anywhere, featuring precise pipe routing and tile rotation.\n\nBuild working paths by rotating straight and elbow pipes to guide fluids into matching drains. Every move is deliberate: some pipes are bolted, some are decoys, and splitters can feed several drains—use careful logic to earn stars and coins.\n\nWhat’s inside\n• 30 levels across 5 chapters: Workshop Basics (1–6), Factory Floor (7–12), Pressure Plant (13–18), Color Lab (19–24), Refinery Riddles (25–30)\n• Mechanics evolve as you progress: rotate pipes, handle drain mouths and several drains, avoid decoy pipes, manage bolted pipes, use splitter tees, route two fluids, navigate cross-overpass “+”, and master three fluids\n• Star rating per level based on your solution quality; replay anytime to improve\n• Helpful tools: hints, undo, and restart are available when you need them\n• Sound and haptics settings let you tune feedback to your preference\n• Plays fully offline; progress is stored on your device only\n\nFair monetization\n• No banner before level 5\n• First interstitial after level 10; then at most one every 4 levels\n• Rewarded ads only when you choose\n• Optional IAP: Remove Ads, Pile of Coins, Chest of Coins (no loot boxes)\n\nWhy you’ll enjoy it\n• Clean, readable grids focused on deduction and planning\n• Each chapter introduces a new twist so solutions stay fresh without complexity creep\n• Designed for touch: tap to rotate tiles with satisfying haptic feedback\n\nMade for puzzle fans\n• A modern pipe puzzle game built for thoughtful play\n• Classic flow puzzle logic with clear rules and single-goal layouts\n• Rotate tile puzzle fans will appreciate the focus on reasoning over speed\n\nIf you enjoy a pipe puzzle, water pipe puzzle layouts, or a flow puzzle that rewards planning, Flow Forge delivers compact challenges you can pick up anytime. Download now and start forging the perfect route.",
   "screenshots_plan": [
-    "One-tap Ad-Free available",
-    "Rotate tiles in real time",
-    "Draw connectors to bridge gaps",
-    "Freeze to plan your route",
-    "150+ offline puzzles",
-    "Smart hints, no leaks"
+    "Rotate tiles to connect",
+    "Two and three fluids",
+    "Splitters and several drains",
+    "Bolted and decoy pipes",
+    "Cross-overpass plus tiles",
+    "Earn stars and coins"
   ],
-  "short_description": "Ad-light pipe puzzle game. Enjoy logic puzzles offline with rotate tile fun."
+  "short_description": "Rotate pipes and route every fluid home: 30 handcrafted offline logic puzzles."
 }

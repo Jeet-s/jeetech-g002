@@ -10,10 +10,10 @@
  * pipes, sources pulse a ring every 1.2 s, drains glow in their colour and a
  * leaking pipe flashes a red double-beat.
  *
- * FEEL: each tile's rotation lives in a shared value owned by the board, so a
- * tap spins it the INSTANT the finger lands (onPressIn, a 150 ms quarter turn
- * with an elastic settle and a 1.06 press swell) under a soft blue glow ring —
- * no JS round-trip. The engine state catches up a tick later. Every joint a
+ * FEEL: a tap reacts the INSTANT the finger lands (onPressIn: a 1.06 press
+ * swell and a soft blue glow ring) and the engine's new rotation spins the
+ * pipe a 150 ms quarter turn with an elastic settle. The drawn angle is driven
+ * only by the engine state, so the board is always what the game evaluates. Every joint a
  * turn makes sends a pulse of the fluid's colour through both pipes and 7
  * sparks out of the seam; a joint it breaks puffs pale steam. Tapping a bolted
  * piece flashes a red X on that tile with a short "Blocked" toast.
@@ -23,7 +23,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import {
-  BlurMask, Canvas, Circle, ColorMatrix, DashPathEffect, Group, Image as SkImage, LinearGradient as SkGradient,
+  Canvas, Circle, ColorMatrix, DashPathEffect, Group, Image as SkImage, LinearGradient as SkGradient,
   Path, RadialGradient, RoundedRect, Skia, useImage, vec, type SkImage as SkImageT,
 } from "@shopify/react-native-skia";
 import {
@@ -60,7 +60,6 @@ export function boardChrome(tile: number) {
 /** Per-tile visual state the touch overlay drives imperatively (no React round-trip). */
 interface TileAnim {
   angle: SharedValue<number>; // live rotation in degrees
-  target: SharedValue<number>; // rotation count (quarter turns) we're heading to
   scale: SharedValue<number>;
   flash: SharedValue<number>; // white glow (tap / win)
   error: SharedValue<number>; // red leak pulse
@@ -76,7 +75,6 @@ const TURN = { duration: 150, easing: Easing.out(Easing.back(2.2)) };
 interface Sprites {
   straight: SkImageT | null; elbow: SkImageT | null; blocker: SkImageT | null;
   source: SkImageT | null; drainBlue: SkImageT | null; drainRed: SkImageT | null; sweep: SkImageT | null;
-  particles: SkImageT | null;
 }
 
 // ── Colour ───────────────────────────────────────────────────────────────────
@@ -176,24 +174,24 @@ function routeSamples(dirs: number[], T: number, n = 16): number[][] {
   return out;
 }
 
-// fx_particles_pack: small bubble centre (234,457) r≈46; red leak ring centre (358,178) r≈100.
-const BUBBLE = { cx: 234, cy: 457, r: 46 };
 
-/** One glassy bubble sprite riding a route, phase-offset on the shared flow clock. */
-function Bubble({ route, offset, size, img }: { route: number[]; offset: number; size: number; img: SkImageT | null }) {
+/** One glass bubble riding a route, phase-offset on the shared flow clock (plain circles: no layers, no images). */
+function Bubble({ route, offset, size, color }: { route: number[]; offset: number; size: number; color: string }) {
   const n = route.length / 2 - 1;
-  const transform = useDerivedValue(() => {
+  const pos = (axis: 0 | 1) => {
+    "worklet";
     const u = (FLOW_CLOCK.value + offset) % 1;
     const f = u * n, k = Math.min(n - 1, Math.floor(f)), t = f - k;
-    const x = route[k * 2] + (route[k * 2 + 2] - route[k * 2]) * t;
-    const y = route[k * 2 + 1] + (route[k * 2 + 3] - route[k * 2 + 1]) * t;
-    return [{ translateX: x }, { translateY: y }, { scale: 0.7 + 0.5 * Math.sin(u * Math.PI) }];
-  });
-  const opacity = useDerivedValue(() => 0.9 * Math.sin(((FLOW_CLOCK.value + offset) % 1) * Math.PI));
-  const k = size / BUBBLE.r;
+    return route[k * 2 + axis] + (route[k * 2 + 2 + axis] - route[k * 2 + axis]) * t;
+  };
+  const cx = useDerivedValue(() => pos(0));
+  const cy = useDerivedValue(() => pos(1));
+  const r = useDerivedValue(() => size * (0.7 + 0.5 * Math.sin(((FLOW_CLOCK.value + offset) % 1) * Math.PI)));
+  const opacity = useDerivedValue(() => 0.85 * Math.sin(((FLOW_CLOCK.value + offset) % 1) * Math.PI));
   return (
-    <Group transform={transform} opacity={opacity} clip={P(circlePath(0, 0, size * 1.05))}>
-      <SkImage image={img} x={-BUBBLE.cx * k} y={-BUBBLE.cy * k} width={482 * k} height={512 * k} fit="fill" />
+    <Group opacity={opacity}>
+      <Circle cx={cx} cy={cy} r={r} color={color} />
+      <Circle cx={cx} cy={cy} r={r} style="stroke" strokeWidth={1} color="rgba(255,255,255,0.9)" />
     </Group>
   );
 }
@@ -261,7 +259,6 @@ function Fluid({ cell, fluid, T, sp, fill }: {
   const dirs = openDirs(cell);
   const lit = dirs.filter((d) => fluid.arm[d]);
   const colors = [...new Set(lit.map((d) => fluid.arm[d]!))];
-  const bubblePhase = useDerivedValue(() => -FLOW_CLOCK.value * T * 0.5);
   const sweepEnd = useDerivedValue(() => fill.value);
   if (!colors.length) return null;
   return (
@@ -274,23 +271,12 @@ function Fluid({ cell, fluid, T, sp, fill }: {
         const hex = FLUID[col];
         return (
           <Group key={col}>
-            {/* 24px-ish halo under the metal — sweeps along the pipe as it fills */}
-            <Path path={P(center)} style="stroke" strokeWidth={T * 0.5} strokeCap="round" color={hex.glow} opacity={0.42} end={sweepEnd}>
-              <BlurMask blur={T * 0.16} style="normal" />
-            </Path>
+            {/* soft halo under the metal (two feathered strokes) — sweeps along the pipe as it fills */}
+            <Path path={P(center)} style="stroke" strokeWidth={T * 0.62} strokeCap="round" color={hex.glow} opacity={0.12} end={sweepEnd} />
+            <Path path={P(center)} style="stroke" strokeWidth={T * 0.5} strokeCap="round" color={hex.glow} opacity={0.18} end={sweepEnd} />
             <Group clip={clip} opacity={fill}>
               <PipeSprite mask={cell.m} T={T} sp={sp} matrix={HUE[col]} />
             </Group>
-            {/* animated caustic shimmer through the lit glass */}
-            <Path path={P(center)} style="stroke" strokeWidth={T * 0.05} strokeCap="round" color={hex.hot} opacity={0.4}>
-              <DashPathEffect intervals={[T * 0.12, T * 0.3]} phase={bubblePhase} />
-            </Path>
-            {/* tiny glass bubbles rising through the fluid (~1.4 Hz per pipe) */}
-            {routeSamples(all ? dirs : arms, T).map((route, j, rs) => (
-              [0, 0.5].map((o) => (
-                <Bubble key={`${j}-${o}`} route={route} offset={o + j / (rs.length * 2)} size={T * 0.055} img={sp.particles} />
-              ))
-            ))}
           </Group>
         );
       })}
@@ -343,9 +329,7 @@ function Overpass({ fluid, T, sp, fill }: { fluid: TileFluid; T: number; sp: Spr
     <Group>
       {straight(true, under)}
       {/* the bridge's shadow falls across the lower channel */}
-      <RoundedRect x={T * 0.04} y={c - th * 0.62} width={T * 0.92} height={th * 1.24} r={th * 0.3} color="rgba(0,0,0,0.5)">
-        <BlurMask blur={T * 0.04} style="normal" />
-      </RoundedRect>
+      <RoundedRect x={T * 0.04} y={c - th * 0.62} width={T * 0.92} height={th * 1.24} r={th * 0.3} color="rgba(0,0,0,0.38)" />
       {straight(false, over)}
       {/* bridge collars where the upper channel lifts off */}
       {[c - th * 0.75, c + th * 0.75].map((x) => (
@@ -378,17 +362,25 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live]);
 
-  // Reconcile with engine rot ONLY when something other than a tap changed it
-  // (undo / restart / hint). A tap already advanced `target` on press-in, so
-  // here target ≡ rot (mod 4) and this is a no-op.
+  // The drawn angle follows the engine's rotation and nothing else: `turns` is a
+  // plain-JS quarter-turn counter (unbounded, so a tap always spins forward) that
+  // each new `rot` advances the shortest way to. Mount / new board snaps to it.
   const firstRot = useRef(true);
+  const turns = useRef(rot);
+  const turnsAnim = useRef(anim);
   useEffect(() => {
     if (!rotatable) return;
-    let delta = (((rot - anim.target.value) % 4) + 4) % 4;
-    if (delta === 3) delta = -1;
-    if (delta !== 0) {
-      anim.target.value = anim.target.value + delta;
-      anim.angle.value = withTiming(anim.target.value * 90, TURN);
+    if (firstRot.current || turnsAnim.current !== anim) {
+      turnsAnim.current = anim;
+      turns.current = rot;
+      anim.angle.value = rot * 90;
+    } else {
+      let delta = (((rot - turns.current) % 4) + 4) % 4;
+      if (delta === 3) delta = -1;
+      if (delta !== 0) {
+        turns.current += delta;
+        anim.angle.value = withTiming(turns.current * 90, TURN);
+      }
     }
     // Dead end: this turn feeds fluid into a pipe whose other end goes nowhere —
     // a small red drip pulses at that open end only.
@@ -400,7 +392,7 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
     }
     firstRot.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rot]);
+  }, [rot, anim]);
 
   useEffect(() => {
     if (winPulse > 0) {
@@ -435,9 +427,8 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
         <>
           {cell.f && cell.t === "pipe" ? <BoltPlate T={T} /> : null}
           {/* ambient occlusion under the pipe */}
-          <Path path={glowPath} style="stroke" strokeWidth={T * 0.46} strokeCap="round" color="rgba(0,0,0,0.55)" transform={[{ translateY: T * 0.05 }]}>
-            <BlurMask blur={T * 0.05} style="normal" />
-          </Path>
+          <Path path={glowPath} style="stroke" strokeWidth={T * 0.5} strokeCap="round" color="rgba(0,0,0,0.18)" transform={[{ translateY: T * 0.06 }]} />
+          <Path path={glowPath} style="stroke" strokeWidth={T * 0.44} strokeCap="round" color="rgba(0,0,0,0.3)" transform={[{ translateY: T * 0.045 }]} />
           {cell.x ? (
             <Overpass fluid={fluid} T={T} sp={sp} fill={anim.fill} />
           ) : (
@@ -450,9 +441,8 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
       )}
       {/* connection pulse: the fluid's colour races through the pipe */}
       <Group opacity={pulseOpacity}>
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.3} strokeCap="round" color={pulseCol.glow}>
-          <BlurMask blur={T * 0.08} style="normal" />
-        </Path>
+        <Path path={glowPath} style="stroke" strokeWidth={T * 0.42} strokeCap="round" color={pulseCol.glow} opacity={0.35} />
+        <Path path={glowPath} style="stroke" strokeWidth={T * 0.26} strokeCap="round" color={pulseCol.glow} opacity={0.6} />
         <Path path={glowPath} style="stroke" strokeWidth={T * 0.07} strokeCap="round" color={pulseCol.hot} />
       </Group>
       {/* leak: a red drip pulsing at each open end the fluid spills from */}
@@ -463,8 +453,8 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
             const ix = c + (x - c) * 0.86, iy = c + (y - c) * 0.86;
             return (
               <Group key={d}>
-                <Circle cx={ix} cy={iy} r={T * 0.16} color={palette.danger} opacity={0.45}>
-                  <BlurMask blur={T * 0.06} style="normal" />
+                <Circle cx={ix} cy={iy} r={T * 0.18}>
+                  <RadialGradient c={vec(ix, iy)} r={T * 0.18} colors={["rgba(255,93,93,0.6)", "rgba(255,93,93,0)"]} />
                 </Circle>
                 <Circle cx={ix} cy={iy} r={dripR} color="#FFD0CA" />
               </Group>
@@ -474,9 +464,8 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
       ) : null}
       {/* glow flash on tap / win sweep */}
       <Group opacity={flashOpacity}>
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.34} strokeCap="round" color="#FFFFFF">
-          <BlurMask blur={T * 0.06} style="normal" />
-        </Path>
+        <Path path={glowPath} style="stroke" strokeWidth={T * 0.4} strokeCap="round" color="#FFFFFF" opacity={0.4} />
+        <Path path={glowPath} style="stroke" strokeWidth={T * 0.28} strokeCap="round" color="#FFFFFF" />
       </Group>
     </Group>
   );
@@ -491,18 +480,7 @@ function Endpoint({ cell, T, fluid, sp, fill }: { cell: Cell; T: number; fluid: 
   const isSource = cell.t === "source";
   const port = openDirs(cell)[0] ?? S;
 
-  // 1.2 s sine loop: source ring / unsolved-drain breathing.
-  const pulse = useSharedValue(0);
-  const breathe = isSource || !fluid.solvedSink;
-  useEffect(() => {
-    if (!breathe) { pulse.value = withTiming(0, { duration: 300 }); return; }
-    pulse.value = 0;
-    pulse.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.sin) }), -1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [breathe]);
-  const ringR = useDerivedValue(() => T * (0.3 + pulse.value * 0.2));
-  const ringOp = useDerivedValue(() => (1 - pulse.value) * 0.85);
-  const coreOp = useDerivedValue(() => (fluid.solvedSink ? 0.95 : 0.3 + 0.25 * Math.sin(pulse.value * Math.PI)));
+  // The endless source ring / unsolved-drain breathing lives on the ambient overlay (EndpointFx).
 
   // Drain-solved beat: a bright ring that expands and fades.
   const burst = useSharedValue(0);
@@ -522,8 +500,8 @@ function Endpoint({ cell, T, fluid, sp, fill }: { cell: Cell; T: number; fluid: 
     const s = c / 324;
     return (
       <Group>
-        <Circle cx={c} cy={c} r={T * 0.42} color={hex.glow} opacity={0.35}>
-          <BlurMask blur={T * 0.14} style="normal" />
+        <Circle cx={c} cy={c} r={T * 0.5}>
+          <RadialGradient c={vec(c, c)} r={T * 0.5} colors={[hex.glow, "rgba(0,0,0,0)"]} positions={[0.35, 1]} />
         </Circle>
         {/* housing + stem toward the port */}
         <Group origin={vec(c, c)} transform={[{ rotate: ((DIR_K[port] - 1) * Math.PI) / 2 }]}>
@@ -537,7 +515,6 @@ function Endpoint({ cell, T, fluid, sp, fill }: { cell: Cell; T: number; fluid: 
             {HUE[col] ? <ColorMatrix matrix={HUE[col]!} /> : null}
           </SkImage>
         </Group>
-        <Circle cx={c} cy={c} r={ringR} style="stroke" strokeWidth={Math.max(2, T * 0.035)} color={hex.glow} opacity={ringOp} />
       </Group>
     );
   }
@@ -553,14 +530,14 @@ function Endpoint({ cell, T, fluid, sp, fill }: { cell: Cell; T: number; fluid: 
           <Stub d={port} T={T} sp={sp} matrix={HUE[col]} />
         </Group>
       ) : null}
-      <Circle cx={c} cy={c} r={disc * 0.5} color="rgba(0,0,0,0.6)" transform={[{ translateY: T * 0.04 }]}>
-        <BlurMask blur={T * 0.05} style="normal" />
+      <Circle cx={c} cy={c + T * 0.04} r={disc * 0.54}>
+        <RadialGradient c={vec(c, c + T * 0.04)} r={disc * 0.54} colors={["rgba(0,0,0,0.6)", "rgba(0,0,0,0)"]} positions={[0.8, 1]} />
       </Circle>
       <SkImage image={drainImg} x={c - disc / 2} y={c - disc / 2} width={disc} height={disc} fit="contain">
         {drainMatrix ? <ColorMatrix matrix={drainMatrix} /> : null}
       </SkImage>
       {/* soft inner glow in the drain's colour */}
-      <Circle cx={c} cy={c} r={disc * 0.34} opacity={coreOp}>
+      <Circle cx={c} cy={c} r={disc * 0.34} opacity={fluid.solvedSink ? 0.95 : 0.3}>
         <RadialGradient c={vec(c, c)} r={disc * 0.34} colors={[hex.hot, hex.glow, "rgba(0,0,0,0)"]} positions={[0, 0.35, 1]} />
       </Circle>
       <Circle cx={c} cy={c} r={burstR} style="stroke" strokeWidth={Math.max(2, T * 0.05)} color={hex.hot} opacity={burstOp} />
@@ -591,15 +568,72 @@ function JointBurst({ x, y, color, T, seed }: { x: number; y: number; color: str
   return (
     <Group>
       {color !== STEAM ? (
-        <Circle cx={x} cy={y} r={flashR} color={color} opacity={flash}>
-          <BlurMask blur={T * 0.05} style="normal" />
-        </Circle>
+        <Circle cx={x} cy={y} r={flashR} color={color} opacity={flash} />
       ) : null}
       {Array.from({ length: 7 }, (_, k) => {
         const a = (k / 7) * Math.PI * 2 + seed;
         const dist = T * (0.22 + ((k * 37 + seed * 11) % 10) / 40);
         return <Spark key={k} x={x} y={y} angle={a} dist={dist} size={T * (color === STEAM ? 0.05 : 0.035)} color={color} t={t} />;
       })}
+    </Group>
+  );
+}
+
+/** Ambient life of one lit pipe: a caustic shimmer and glass bubbles riding the fluid, turned with the tile. */
+function FlowFx({ cell, fluid, rot, x, y, T, anim }: { cell: Cell; fluid: TileFluid; rot: number; x: number; y: number; T: number; anim: TileAnim }) {
+  const c = T / 2;
+  const dirs = openDirs(cell);
+  const lit = dirs.filter((d) => fluid.arm[d]);
+  const colors = [...new Set(lit.map((d) => fluid.arm[d]!))];
+  const rotatable = !cell.f;
+  const turn = useDerivedValue(() => [{ rotateZ: rotatable ? (anim.angle.value * Math.PI) / 180 : (rot * Math.PI) / 2 }]);
+  const phase = useDerivedValue(() => -FLOW_CLOCK.value * T * 0.5);
+  return (
+    <Group transform={[{ translateX: x }, { translateY: y }]}>
+      <Group origin={vec(c, c)} transform={turn}>
+        {colors.map((col) => {
+          const arms = lit.filter((d) => fluid.arm[d] === col);
+          const all = arms.length === dirs.length;
+          const hex = FLUID[col];
+          return (
+            <Group key={col}>
+              <Path path={P(armsPath(all ? dirs : arms, T))} style="stroke" strokeWidth={T * 0.05} strokeCap="round" color={hex.hot} opacity={0.45}>
+                <DashPathEffect intervals={[T * 0.12, T * 0.3]} phase={phase} />
+              </Path>
+              {routeSamples(all ? dirs : arms, T, 8).map((route, j, rs) => (
+                <Bubble key={j} route={route} offset={j / rs.length} size={T * 0.045} color={hex.hot} />
+              ))}
+            </Group>
+          );
+        })}
+      </Group>
+    </Group>
+  );
+}
+
+/** Sources pulse a ring every 1.2 s; drains still waiting for fluid breathe in their colour. */
+function EndpointFx({ x, y, T, color, source, solved }: { x: number; y: number; T: number; color: Color; source: boolean; solved: boolean }) {
+  const pulse = useSharedValue(0);
+  const on = source || !solved;
+  useEffect(() => {
+    if (!on) { pulse.value = withTiming(0, { duration: 300 }); return; }
+    pulse.value = 0;
+    pulse.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.sin) }), -1);
+  }, [on, pulse]);
+  const c = T / 2, hex = FLUID[color];
+  const ringR = useDerivedValue(() => T * (0.3 + pulse.value * 0.2));
+  const ringOp = useDerivedValue(() => (1 - pulse.value) * 0.85);
+  const coreOp = useDerivedValue(() => 0.3 * Math.sin(pulse.value * Math.PI));
+  if (!on) return null;
+  return (
+    <Group transform={[{ translateX: x }, { translateY: y }]}>
+      {source ? (
+        <Circle cx={c} cy={c} r={ringR} style="stroke" strokeWidth={Math.max(2, T * 0.035)} color={hex.glow} opacity={ringOp} />
+      ) : (
+        <Circle cx={c} cy={c} r={T * 0.26} opacity={coreOp}>
+          <RadialGradient c={vec(c, c)} r={T * 0.26} colors={[hex.hot, hex.glow, "rgba(0,0,0,0)"]} positions={[0, 0.35, 1]} />
+        </Circle>
+      )}
     </Group>
   );
 }
@@ -615,13 +649,11 @@ function TileOverlay({ x, y, T, anim }: { x: number; y: number; T: number; anim:
   return (
     <Group transform={[{ translateX: x }, { translateY: y }]}>
       <Group opacity={ringOp}>
-        <RoundedRect x={ringIn} y={ringIn} width={ringW} height={ringW} r={T * 0.18} style="stroke" strokeWidth={T * 0.07} color={palette.accent}>
-          <BlurMask blur={T * 0.05} style="solid" />
-        </RoundedRect>
+        <RoundedRect x={ringIn} y={ringIn} width={ringW} height={ringW} r={T * 0.18} style="stroke" strokeWidth={T * 0.07} color={palette.accent} />
       </Group>
       <Group opacity={denyOp} origin={vec(c, c)} transform={denyT}>
-        <Circle cx={c} cy={c} r={T * 0.3} color="rgba(255,93,93,0.28)">
-          <BlurMask blur={T * 0.06} style="normal" />
+        <Circle cx={c} cy={c} r={T * 0.34}>
+          <RadialGradient c={vec(c, c)} r={T * 0.34} colors={["rgba(255,93,93,0.4)", "rgba(255,93,93,0)"]} />
         </Circle>
         <Path path={P(`M${c - k} ${c - k}L${c + k} ${c + k}M${c + k} ${c - k}L${c - k} ${c + k}`)} style="stroke" strokeWidth={T * 0.08} strokeCap="round" color={palette.danger} />
       </Group>
@@ -643,25 +675,35 @@ export function PipeBoard({
   guide?: Guide | null;
 }) {
   const T = tile;
-  const fluids = useMemo(() => def.cells.map((_, i) => tileFluid(def, rot, fv, i)), [def, rot, fv]);
+  // Keep each tile's fluid object identical while its fluid is unchanged, so a turn only re-renders the tiles it affects.
+  const prevFluids = useRef<{ def: LevelDef; list: TileFluid[] } | null>(null);
+  const fluids = useMemo(() => {
+    const old = prevFluids.current?.def === def ? prevFluids.current.list : null;
+    const list = def.cells.map((_, i) => {
+      const f = tileFluid(def, rot, fv, i);
+      return old && JSON.stringify(old[i]) === JSON.stringify(f) ? old[i] : f;
+    });
+    prevFluids.current = { def, list };
+    return list;
+  }, [def, rot, fv]);
   const view = useMemo(() => boardView(def), [def]);
   const { bezel, well } = boardChrome(T);
 
-  const sp: Sprites = {
-    straight: useImage(art.pipe_straight),
-    elbow: useImage(art.pipe_elbow),
-    blocker: useImage(art.tile_blocker),
-    source: useImage(art.endpoint_source_blue),
-    drainBlue: useImage(art.endpoint_drain_blue),
-    drainRed: useImage(art.endpoint_drain_red),
-    sweep: useImage(art.fx_glow_sweep),
-    particles: useImage(art.fx_particles_pack),
-  };
+  const straight = useImage(art.pipe_straight);
+  const elbow = useImage(art.pipe_elbow);
+  const blocker = useImage(art.tile_blocker);
+  const source = useImage(art.endpoint_source_blue);
+  const drainBlue = useImage(art.endpoint_drain_blue);
+  const drainRed = useImage(art.endpoint_drain_red);
+  const sweep = useImage(art.fx_glow_sweep);
+  const sp = useMemo<Sprites>(
+    () => ({ straight, elbow, blocker, source, drainBlue, drainRed, sweep }),
+    [straight, elbow, blocker, source, drainBlue, drainRed, sweep],
+  );
 
   const anims = useMemo<TileAnim[]>(
     () => def.cells.map((cell) => ({
       angle: makeMutable(cell.r * 90),
-      target: makeMutable(cell.r),
       scale: makeMutable(1),
       flash: makeMutable(1e-6),
       error: makeMutable(0),
@@ -720,8 +762,6 @@ export function PipeBoard({
 
   function spin(i: number) {
     const a = anims[i];
-    a.target.value = a.target.value + 1;
-    a.angle.value = withTiming(a.target.value * 90, TURN);
     a.scale.value = withSequence(withTiming(1.06, { duration: 60 }), withSpring(1, springs.pop));
     a.flash.value = withSequence(withTiming(0.8, { duration: 30 }), withTiming(0, { duration: 200 }));
     a.ring.value = withSequence(withTiming(1, { duration: 50 }), withTiming(0, { duration: 380, easing: Easing.out(Easing.quad) }));
@@ -827,17 +867,6 @@ export function PipeBoard({
             const p = T * 0.14;
             return <SkImage key={`b${i}`} image={sp.blocker} x={x + p} y={y + p} width={T - p * 2} height={T - p * 2} fit="contain" opacity={0.65} />;
           })}
-          {/* hint ring */}
-          {hintIndex != null && def.cells[hintIndex] && inView(hintIndex) ? (() => {
-            const { x, y } = cellXY(hintIndex);
-            return (
-              <Group opacity={hintOp}>
-                <RoundedRect x={x + 3} y={y + 3} width={T - 6} height={T - 6} r={T * 0.16} style="stroke" strokeWidth={T * 0.06} color={palette.primary}>
-                  <BlurMask blur={4} style="solid" />
-                </RoundedRect>
-              </Group>
-            );
-          })() : null}
           {/* level-1 guide: faint dotted route, glowing ring on the next pipe */}
           {guide && guide.route.length > 1 ? (
             <Path
@@ -847,17 +876,6 @@ export function PipeBoard({
               <DashPathEffect intervals={[T * 0.04, T * 0.11]} />
             </Path>
           ) : null}
-          {guide?.next != null && inView(guide.next) ? (() => {
-            const { x, y } = cellXY(guide.next);
-            return (
-              <Group opacity={hintOp}>
-                <RoundedRect x={x + 3} y={y + 3} width={T - 6} height={T - 6} r={T * 0.16} color="rgba(46,196,255,0.14)" />
-                <RoundedRect x={x + 3} y={y + 3} width={T - 6} height={T - 6} r={T * 0.16} style="stroke" strokeWidth={T * 0.06} color={palette.accent}>
-                  <BlurMask blur={4} style="solid" />
-                </RoundedRect>
-              </Group>
-            );
-          })() : null}
           {/* tiles */}
           {def.cells.map((cell, i) => {
             if (cell.t === "empty" || !inView(i)) return null;
@@ -876,22 +894,53 @@ export function PipeBoard({
           })}
           {/* joint sparks / steam */}
           {bursts.map((b) => <JointBurst key={b.id} x={b.x} y={b.y} color={b.color} T={T} seed={b.id * 0.7} />)}
-          {/* guide: the target drain throbs */}
-          {guide?.drainPulse && guide.route.length ? (() => {
-            const { x, y } = cellXY(guide.route[guide.route.length - 1]);
-            return <Circle cx={x + T / 2} cy={y + T / 2} r={drainRingR} style="stroke" strokeWidth={Math.max(3, T * 0.05)} color={palette.accent} opacity={drainRingOp} />;
-          })() : null}
           {/* win glow sweep */}
           <Group transform={sweepT} opacity={sweepOp} blendMode="plus">
             <SkImage image={sp.sweep} x={0} y={-innerH * 0.1} width={sweepW} height={innerH * 1.2} fit="fill" />
           </Group>
-          {/* soft 12 px inner shadow pushes the grid into the tray */}
-          <RoundedRect x={-6} y={-6} width={innerW + 12} height={innerH + 12} r={rr + 6} style="stroke" strokeWidth={18} color="rgba(0,0,0,0.75)">
-            <BlurMask blur={12} style="normal" />
-          </RoundedRect>
+          {/* soft inner shadow pushes the grid into the tray (stacked strokes, no blur pass) */}
+          {[[3, 0.42], [7, 0.24], [12, 0.12]].map(([w, a]) => (
+            <RoundedRect key={w} x={0} y={0} width={innerW} height={innerH} r={rr} style="stroke" strokeWidth={w * 2} color={`rgba(0,0,0,${a})`} />
+          ))}
           <RoundedRect x={0} y={0} width={innerW} height={innerH} r={rr}>
             <RadialGradient c={vec(innerW / 2, innerH * 0.45)} r={Math.max(innerW, innerH) * 0.7} colors={["rgba(46,196,255,0.05)", "rgba(0,0,0,0)", "rgba(0,0,0,0.3)"]} positions={[0, 0.6, 1]} />
           </RoundedRect>
+        </Canvas>
+        {/* Ambient layer: everything that moves forever (bubbles, shimmer, source rings, drain breathing, hint and
+            guide rings) lives on its own light canvas, so the board above only redraws when the game changes. */}
+        <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
+          {def.cells.map((cell, i) => {
+            if (cell.t === "empty" || !inView(i)) return null;
+            const { x, y } = cellXY(i);
+            if (cell.t === "source" || cell.t === "sink") {
+              return <EndpointFx key={`a${i}`} x={x} y={y} T={T} color={cell.c ?? "blue"} source={cell.t === "source"} solved={fluids[i].solvedSink} />;
+            }
+            if (cell.x || !Object.values(fluids[i].arm).some(Boolean)) return null;
+            return <FlowFx key={`a${i}`} cell={cell} fluid={fluids[i]} rot={rot[i]} x={x} y={y} T={T} anim={anims[i]} />;
+          })}
+          {hintIndex != null && def.cells[hintIndex] && inView(hintIndex) ? (() => {
+            const { x, y } = cellXY(hintIndex);
+            return (
+              <Group opacity={hintOp}>
+                <RoundedRect x={x + 2} y={y + 2} width={T - 4} height={T - 4} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color="rgba(217,122,43,0.35)" />
+                <RoundedRect x={x + 4} y={y + 4} width={T - 8} height={T - 8} r={T * 0.15} style="stroke" strokeWidth={T * 0.05} color={palette.primary} />
+              </Group>
+            );
+          })() : null}
+          {guide?.next != null && inView(guide.next) ? (() => {
+            const { x, y } = cellXY(guide.next);
+            return (
+              <Group opacity={hintOp}>
+                <RoundedRect x={x + 3} y={y + 3} width={T - 6} height={T - 6} r={T * 0.16} color="rgba(46,196,255,0.14)" />
+                <RoundedRect x={x + 2} y={y + 2} width={T - 4} height={T - 4} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color="rgba(46,196,255,0.3)" />
+                <RoundedRect x={x + 4} y={y + 4} width={T - 8} height={T - 8} r={T * 0.15} style="stroke" strokeWidth={T * 0.05} color={palette.accent} />
+              </Group>
+            );
+          })() : null}
+          {guide?.drainPulse && guide.route.length ? (() => {
+            const { x, y } = cellXY(guide.route[guide.route.length - 1]);
+            return <Circle cx={x + T / 2} cy={y + T / 2} r={drainRingR} style="stroke" strokeWidth={Math.max(3, T * 0.05)} color={palette.accent} opacity={drainRingOp} />;
+          })() : null}
         </Canvas>
         {/* transparent hit targets — rotate on press-in so the spin starts within a frame */}
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
