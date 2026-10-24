@@ -1,49 +1,54 @@
 /**
  * Design tokens. Every screen uses these — never raw colours, sizes or system
  * fonts. Values come from docs/ART_DIRECTION.md (the studio's approved look):
- * a dark-steel industrial workshop, anodized-teal bezels, cyan/red luminous
- * fluids and one warm orange call-to-action colour.
+ * a cozy workshop at dusk — navy haze, warm graphite trays, brass fittings,
+ * luminous glass pipes (cyan, lime, amber, violet) and a cyan glass CTA.
  */
 export const palette = {
-  // UI kit tokens (ART_DIRECTION.md) — primary = orange CTA, secondary = steel, accent = cyan glow.
-  primary: "#D97A2B",
-  primaryDark: "#A85E1F",
-  secondary: "#4E5E68",
-  secondaryDark: "#324049",
-  accent: "#2EC4FF",
-  accentDark: "#108AB4",
-  bgTop: "#22313C",
-  bgBottom: "#0F1A24",
-  ink: "#F2F6FA",
-  // Art-bible palette
-  teal: "#274454",
-  steelLight: "#8EA7B2",
-  fluidBlue: "#2EC4FF",
+  // UI kit tokens (docs/ART_DIRECTION.md): primary = cyan glass CTA, secondary = amber, accent = violet.
+  primary: "#12D1E6",
+  primaryDark: "#0A7A8C",
+  secondary: "#FFB24D",
+  secondaryDark: "#C7741C",
+  accent: "#B16BFF",
+  accentDark: "#6A2FCF",
+  bgTop: "#0B1021",
+  bgBottom: "#0F2C49",
+  ink: "#F2F7FF",
+  // Cyan glow for live flow, guides and selection rims.
+  glow: "#12D1E6",
+  glowSoft: "rgba(18,209,230,0.35)",
+  brass: "#D9A441",
+  brassDark: "#8A5A1C",
+  lime: "#6EE06F",
+  teal: "#0F2C49",
+  steelLight: "#B9AE9E",
+  fluidBlue: "#12D1E6",
   fluidRed: "#FF5D5D",
   danger: "#FF5D5D",
   dangerDark: "#B83A3A",
-  // Surfaces — dark satin steel sheets
-  surface: "#1B2731",
-  surfaceAlt: "#16222B", // recessed wells / list rows inside a sheet
-  surfaceDark: "#111B23",
-  line: "#2A3A45", // board grid lines (use at 35%)
-  rim: "rgba(46,196,255,0.22)", // anodized teal edge
-  inkSoft: "#A9BAC4",
-  inkMuted: "#6F8693",
+  // Surfaces — warm graphite trays (board_tray art) and sunken sockets (tile_slot art)
+  surface: "#39332D",
+  surfaceAlt: "#2A2622",
+  surfaceDark: "#1C1916",
+  line: "#2A2622",
+  rim: "rgba(18,209,230,0.35)",
+  inkSoft: "#D3DCE8", // ink at ~85% on dark
+  inkMuted: "#97A0AD",
   onPrimary: "#FFFFFF",
   // Game feedback
   star: "#FFC23D",
-  coin: "#FFC23D",
-  success: "#3FD18A",
+  coin: "#FFB24D",
+  success: "#6EE06F",
 };
 
-/** One rounded sans across the whole game (Nunito), per the art direction. */
+/** Friendly geometric sans (Fredoka) for display + numerals, Nunito for body copy, per the art direction. */
 export const fonts = {
-  display: "Nunito_800ExtraBold", // big numerals, button labels
-  displayMedium: "Nunito_700Bold", // titles (reads as semibold at 28)
-  body: "Nunito_600SemiBold",
-  medium: "Nunito_500Medium", // HUD labels
-  bodyRegular: "Nunito_400Regular", // body / tutorial copy
+  display: "Fredoka_700Bold", // headlines, big numerals, button labels
+  displayMedium: "Fredoka_600SemiBold", // titles, counters
+  body: "Nunito_700Bold",
+  medium: "Nunito_600SemiBold", // HUD labels
+  bodyRegular: "Nunito_600SemiBold", // body / tutorial copy (wide apertures, readable on dark)
 };
 
 export const radius = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 };
@@ -56,12 +61,12 @@ export const type = {
   hero: { fontFamily: fonts.display, fontSize: 40, letterSpacing: track(40) },
   title: { fontFamily: fonts.displayMedium, fontSize: 28, letterSpacing: track(28) },
   heading: { fontFamily: fonts.displayMedium, fontSize: 22, letterSpacing: track(22) },
-  hud: { fontFamily: fonts.medium, fontSize: 14, letterSpacing: track(14) },
+  hud: { fontFamily: fonts.medium, fontSize: 14, letterSpacing: 0.2 },
   body: { fontFamily: fonts.bodyRegular, fontSize: 16, letterSpacing: track(16) },
   caption: { fontFamily: fonts.medium, fontSize: 13, letterSpacing: track(13) },
   button: { fontFamily: fonts.display, fontSize: 20, letterSpacing: track(20) },
   /** Tabular numerals so counters never jitter as digits change. */
-  number: { fontFamily: fonts.display, fontVariant: ["tabular-nums" as const] },
+  number: { fontFamily: fonts.display, letterSpacing: 0.4, fontVariant: ["tabular-nums" as const] },
 };
 
 /** Soft drop shadow used on cards and buttons (iOS + Android). */
@@ -84,9 +89,9 @@ export const shadowStrong = {
 
 /** Steel "lip" tones for the 3D under-edge of panels and cards. */
 export const lip = {
-  light: "#0B141B", // under steel sheets
-  dark: "#070D12", // under the darkest surfaces
-  scrim: "15,26,36", // rgb() of bgBottom — for dim/scrim overlays
+  light: "#15120F", // under steel sheets
+  dark: "#0B0907", // under the darkest surfaces
+  scrim: "11,16,33", // rgb() of bgBottom — for dim/scrim overlays
 };
 
 /** Spring / timing presets — every animation in the game feels consistent. */

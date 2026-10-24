@@ -9,10 +9,11 @@ import {
 } from "./engine";
 
 export const COLOR_HEX: Record<Color, { fluid: string; glow: string; light: string }> = {
-  blue: { fluid: "#2EC4FF", glow: "rgba(46,196,255,0.55)", light: "#D8F6FF" },
+  blue: { fluid: "#12D1E6", glow: "rgba(18,209,230,0.55)", light: "#D6FBFF" },
   red: { fluid: "#FF5D5D", glow: "rgba(255,93,93,0.55)", light: "#FFE1DC" },
   green: { fluid: "#43A047", glow: "rgba(67,160,71,0.55)", light: "#B6E8B8" },
   yellow: { fluid: "#FFB300", glow: "rgba(255,179,0,0.55)", light: "#FFE49B" },
+  purple: { fluid: "#B16CFF", glow: "rgba(177,108,255,0.55)", light: "#EEDCFF" },
 };
 
 const OPP: Record<number, number> = { [N]: S, [E]: W, [S]: N, [W]: E };
@@ -45,6 +46,12 @@ export interface TileFluid {
   solvedSink: boolean;
 }
 
+/** What a pipe carrying these fluids shows: blue + red running together read as the purple blend (mixer levels). */
+function blend(cols: Color[]): Color | null {
+  if (cols.includes("blue") && cols.includes("red")) return "purple";
+  return cols[0] ?? null;
+}
+
 export function tileFluid(def: LevelDef, rot: number[], fv: FlowView, i: number): TileFluid {
   const { w, h, cells } = def;
   const cell = cells[i];
@@ -54,7 +61,7 @@ export function tileFluid(def: LevelDef, rot: number[], fv: FlowView, i: number)
     if (!(cell.m & bd)) continue;
     const d = rotateDir(bd, rot[i]); // where this arm actually points now
     const nb = neighbor(i, d, w, h);
-    let col: Color | null = null;
+    const through: Color[] = [];
     if (nb >= 0) {
       const nbCell = cells[nb];
       for (const c of here) {
@@ -62,14 +69,14 @@ export function tileFluid(def: LevelDef, rot: number[], fv: FlowView, i: number)
         if (nbCell.t === "empty") continue;
         if (nbCell.g && nbCell.c !== c) continue;
         if (cell.g && cell.c !== c) continue;
-        if (maskAt(nbCell.m, rot[nb]) & OPP[d]) { col = c; break; }
+        if (maskAt(nbCell.m, rot[nb]) & OPP[d]) through.push(c);
       }
     }
-    arm[bd] = col;
+    arm[bd] = blend(through);
   }
   const sinkIdx = fv.sinks.indexOf(i);
   return {
-    body: here[0] ?? null,
+    body: blend(here),
     arm,
     solvedSink: sinkIdx >= 0 ? fv.satisfied[sinkIdx] : false,
   };
@@ -95,6 +102,9 @@ export function shapeOf(cell: Cell): Shape {
 export function goalFor(def: LevelDef): string {
   const drains = def.cells.filter((c) => c.t === "sink").length;
   const crosses = def.cells.some((c) => c.x);
+  if (def.cells.some((c) => c.t === "sink" && c.c === "purple")) return "Blend blue and red in the purple vat. Keep other drains pure";
+  if (def.groups.length) return "Geared pipes turn together. Line up every pair";
+  if (def.cells.some((c) => c.g)) return "Filters pass only their own colour. Fluids may share pipes";
   if (def.colors.length >= 3) return crosses ? "Route all three fluids home. Use the overpasses" : "Route all three fluids to their drains";
   if (drains > def.colors.length) return "Fill every drain. Tees split the flow";
   if (crosses) return "Cross the fluids on the overpass. Never mix them";

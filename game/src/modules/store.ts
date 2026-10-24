@@ -20,6 +20,14 @@ export interface PlayerState {
   /** Booster bank: Wrench (sets one pipe right, free) and +5 Moves. */
   wrenches?: number;
   extraMoves?: number;
+  /** Meta (src/game/meta.ts): last day the daily board was cleared (YYYY-MM-DD), streak, collections, reminders. */
+  dailyDay?: string;
+  streak?: number;
+  bestStreak?: number;
+  dailyWins?: number;
+  claimedChapters?: number[];
+  claimedStarGoals?: number[];
+  reminders?: boolean;
 }
 
 const KEY = "player_state_v1";

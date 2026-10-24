@@ -8,7 +8,7 @@ import { art } from "../art";
  * positioning, so it needs no onLayout measurement.
  */
 export function NineSlice({
-  source, w, h, cap, scale, style, children,
+  source, w, h, cap, scale, style, children, fill,
 }: {
   source: ImageSourcePropType;
   w: number; h: number; // source pixel size
@@ -16,6 +16,8 @@ export function NineSlice({
   scale: number; // dp per source px for the caps
   style?: ViewStyle | ViewStyle[];
   children?: React.ReactNode;
+  /** Paint the centre this colour instead of stretching the art's centre (trays with baked-in detail). */
+  fill?: string;
 }) {
   const xs = [0, cap.l, w - cap.r, w];
   const ys = [0, cap.t, h - cap.b, h];
@@ -29,6 +31,7 @@ export function NineSlice({
             {[0, 1, 2].map((c) => {
               const sw = xs[c + 1] - xs[c];
               const sh = ys[r + 1] - ys[r];
+              if (fill && r === 1 && c === 1) return <View key={c} style={{ flex: 1, backgroundColor: fill }} />;
               return (
                 <View key={c} style={[styles.cell, c === 1 ? { flex: 1 } : { width: cw[c] }]}>
                   <Image
@@ -54,24 +57,30 @@ export function NineSlice({
   );
 }
 
-/** Brushed dark-steel plate (from the HUD art) with a rounded, bevelled edge. */
+/** board_tray art: 422x512, chamfered graphite rim + thin cyan accent line inside 62 px caps. */
+const TRAY = { w: 422, h: 512, cap: { l: 62, t: 62, r: 62, b: 62 }, fill: "#39332D" };
+/** tile_slot art: 510x512 sunken socket, bevel inside 50 px caps. */
+const SLOT = { w: 510, h: 512, cap: { l: 50, t: 50, r: 50, b: 50 } };
+
+/**
+ * Graphite tray plate (the board_tray art, nine-sliced): chamfered rim, a thin cyan accent line and a warm
+ * graphite face — for cards, pills, banners and HUD groups. `radius` sets the rim size; `glow` adds a cyan halo.
+ */
 export function SteelPlate({ style, children, radius = 12, glow }: { style?: ViewStyle | ViewStyle[]; children?: React.ReactNode; radius?: number; glow?: boolean }) {
+  const scale = Math.min(0.34, Math.max(0.2, radius / 40));
   return (
-    <View style={[{ borderRadius: radius }, styles.plateShadow, style]}>
-      <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }]} pointerEvents="none">
-        <Image source={art.hud_plate_steel} resizeMode="stretch" fadeDuration={0} style={StyleSheet.absoluteFill} />
-        <View style={[StyleSheet.absoluteFill, { borderRadius: radius }, styles.bevel, glow && styles.glowRim]} />
-      </View>
+    <View style={[{ borderRadius: radius }, styles.plateShadow, glow && styles.glowShadow, style]}>
+      <NineSlice source={art.board_tray} w={TRAY.w} h={TRAY.h} cap={TRAY.cap} scale={scale} fill={TRAY.fill} style={StyleSheet.absoluteFill} />
       {children}
     </View>
   );
 }
 
-/** Recessed well cut into a steel plate (meters, counters, list rows). */
+/** Sunken socket cut into a tray (the tile_slot art, nine-sliced): meters, counters, list rows. */
 export function Well({ style, children, radius = 10 }: { style?: ViewStyle | ViewStyle[]; children?: React.ReactNode; radius?: number }) {
   return (
-    <View style={[styles.well, { borderRadius: radius }, style]}>
-      <View pointerEvents="none" style={[styles.wellShade, { borderTopLeftRadius: radius, borderTopRightRadius: radius }]} />
+    <View style={[{ borderRadius: radius }, style]}>
+      <NineSlice source={art.tile_slot} w={SLOT.w} h={SLOT.h} cap={SLOT.cap} scale={Math.min(0.36, Math.max(0.16, radius / 44))} style={StyleSheet.absoluteFill} />
       {children}
     </View>
   );
@@ -82,12 +91,5 @@ const styles = StyleSheet.create({
   flexRow: { flexDirection: "row", flex: 1 },
   cell: { overflow: "hidden" },
   plateShadow: { shadowColor: "#000", shadowOpacity: 0.55, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
-  bevel: { borderWidth: 1, borderTopColor: "rgba(170,200,214,0.30)", borderLeftColor: "rgba(170,200,214,0.12)", borderRightColor: "rgba(0,0,0,0.35)", borderBottomColor: "rgba(0,0,0,0.6)" },
-  glowRim: { borderColor: "rgba(46,196,255,0.30)", borderTopColor: "rgba(46,196,255,0.45)" },
-  well: {
-    backgroundColor: "#0E171E", overflow: "hidden",
-    borderWidth: 1, borderTopColor: "rgba(0,0,0,0.75)", borderLeftColor: "rgba(0,0,0,0.55)",
-    borderRightColor: "rgba(142,167,178,0.12)", borderBottomColor: "rgba(142,167,178,0.22)",
-  },
-  wellShade: { position: "absolute", left: 0, right: 0, top: 0, height: 5, backgroundColor: "rgba(0,0,0,0.35)" },
+  glowShadow: { shadowColor: "#12D1E6", shadowOpacity: 0.35, shadowRadius: 16, shadowOffset: { width: 0, height: 0 } },
 });

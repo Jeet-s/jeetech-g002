@@ -9,14 +9,25 @@ import { BOOSTERS, owned, type Booster, type BoosterId } from "../game/boosters"
 import { art } from "../art";
 
 const IOS = Platform.OS === "ios";
-const ICON: Record<string, string> = { remove_ads: "🚫", coins_small: "🪙", coins_large: "💰" };
+/** Shop row art: the gear-token currency (a pile = 1 token, a chest = 3), the no-ads icon, a play icon for videos. */
+function RowArt({ sku }: { sku: string }) {
+  if (sku === "remove_ads") return <View style={styles.rowArt}><Icon name="noads" size={30} color={palette.primary} stroke={2.4} /></View>;
+  if (sku === "video") return <View style={styles.rowArt}><Icon name="play" size={24} color={palette.secondary} /></View>;
+  const n = sku === "coins_large" ? 3 : 1;
+  return (
+    <View style={styles.rowArt}>
+      {Array.from({ length: n }, (_, k) => (
+        <Image key={k} source={art.reward_gear_token} fadeDuration={0} resizeMode="contain"
+          style={{ position: "absolute", width: n > 1 ? 30 : 38, height: n > 1 ? 30 : 38, left: n > 1 ? 2 + k * 11 : 7, top: n > 1 ? (k === 1 ? 4 : 16) : 7 }} />
+      ))}
+    </View>
+  );
+}
 const BOOSTER_ICON: Record<BoosterId, IconName | "wrench-art"> = { hint: "bulb", wrench: "wrench-art", moves: "plus" };
 
 function BoosterIcon({ id, size }: { id: BoosterId; size: number }) {
   const i = BOOSTER_ICON[id];
-  return i === "wrench-art"
-    ? <Image source={art.icon_reward_wrench} style={{ width: size, height: size }} resizeMode="contain" fadeDuration={0} />
-    : <Icon name={i} size={size} color={i === "bulb" ? palette.ink : palette.accent} stroke={2.8} />;
+  return <Icon name={i === "wrench-art" ? "wrench" : i} size={size} color={i === "bulb" ? palette.ink : palette.secondary} stroke={2.8} />;
 }
 
 /**
@@ -120,7 +131,10 @@ export function ShopScreen({ visible, onClose }: { visible: boolean; onClose: ()
 
   return (
     <Popup visible={visible} title="Shop" onClose={onClose}>
-      <Text style={styles.balance}>🪙 {state.coins.toLocaleString()}</Text>
+      <View style={styles.balanceRow}>
+        <Icon name="coin" size={30} />
+        <Text style={styles.balance}>{state.coins.toLocaleString()}</Text>
+      </View>
       {noteView}
       <ScrollView style={{ maxHeight: Math.max(300, height - 330) }} contentContainerStyle={{ paddingBottom: 4 }} showsVerticalScrollIndicator={false}>
         <Text style={styles.section}>Boosters</Text>
@@ -131,7 +145,7 @@ export function ShopScreen({ visible, onClose }: { visible: boolean; onClose: ()
               <Pressable
                 key={b.id}
                 onPress={() => { feedback("tap", "select"); setPick(b.id); }}
-                style={[styles.card, on && styles.cardOn]}
+                style={({ pressed }) => [styles.card, on && styles.cardOn, pressed && styles.pressed]}
                 accessibilityRole="button"
                 accessibilityLabel={`${b.name} booster`}
                 accessibilityState={{ selected: on }}
@@ -154,15 +168,15 @@ export function ShopScreen({ visible, onClose }: { visible: boolean; onClose: ()
               </View>
             </View>
             <View style={styles.detailBtns}>
-              <GameButton style={{ flex: 1.3 }} size="sm" variant="primary" label={`Buy ${sel.pack} · 🪙 ${sel.coins}`} onPress={() => buyBooster(sel)} />
+              <GameButton style={{ flex: 1.3 }} size="sm" variant="primary" icon={<Icon name="coin" size={20} />} label={`${sel.coins} · Buy ${sel.pack}`} onPress={() => buyBooster(sel)} />
               <GameButton style={{ flex: 1 }} size="sm" variant="secondary" icon="play" label="Free 1" onPress={() => freeBooster(sel)} />
             </View>
           </Well>
         </Animated.View>
 
         {noAds && !state.adsRemoved ? (
-          <Pressable onPress={() => { feedback("tap", "light"); setPage("noads"); }} style={styles.row} accessibilityRole="button" accessibilityLabel="Remove Ads">
-            <Text style={styles.icon}>{ICON.remove_ads}</Text>
+          <Pressable onPress={() => { feedback("tap", "light"); setPage("noads"); }} style={({ pressed }) => [styles.row, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Remove Ads">
+            <RowArt sku="remove_ads" />
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>Remove Ads</Text>
               <Text style={styles.sub}>No banners, no ads between levels</Text>
@@ -173,13 +187,13 @@ export function ShopScreen({ visible, onClose }: { visible: boolean; onClose: ()
         {IOS && !items.length ? <Text style={styles.policy}>The App Store is unavailable right now. Please try again later.</Text> : null}
         {packs.map((i) => (
           <View key={i.sku} style={styles.row}>
-            <Text style={styles.icon}>{ICON[i.sku] ?? "✨"}</Text>
+            <RowArt sku={i.sku} />
             <Text style={[styles.title, { flex: 1 }]}>{i.title}</Text>
             <GameButton size="sm" variant="primary" label={i.price} onPress={() => buy(i.sku)} />
           </View>
         ))}
         <View style={styles.row}>
-          <Text style={styles.icon}>🎬</Text>
+          <RowArt sku="video" />
           <Text style={[styles.title, { flex: 1 }]}>Free 50 coins</Text>
           <GameButton
             size="sm" variant="secondary" label="Watch"
@@ -201,22 +215,24 @@ export function ShopScreen({ visible, onClose }: { visible: boolean; onClose: ()
 }
 
 const styles = StyleSheet.create({
-  balance: { fontFamily: fonts.display, fontSize: 24, color: palette.coin, textAlign: "center", marginBottom: 10 },
+  balanceRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 },
+  balance: { fontFamily: fonts.display, fontSize: 24, color: palette.coin },
+  rowArt: { width: 52, height: 52, alignItems: "center", justifyContent: "center" },
   section: { fontFamily: fonts.display, fontSize: 16, color: palette.inkSoft, marginBottom: 8, marginLeft: 2 },
   cards: { flexDirection: "row", gap: 8, marginBottom: 8 },
   card: {
-    flex: 1, alignItems: "center", gap: 3, paddingVertical: 10, borderRadius: 16, backgroundColor: palette.surfaceAlt,
-    borderWidth: 2, borderColor: "rgba(142,167,178,0.18)",
+    flex: 1, alignItems: "center", gap: 3, paddingVertical: 10, borderRadius: 16, backgroundColor: palette.surfaceDark,
+    borderWidth: 2, borderColor: "rgba(217,164,65,0.25)",
   },
-  cardOn: { backgroundColor: "#24414F", borderColor: palette.accent, transform: [{ translateY: -2 }] },
+  cardOn: { backgroundColor: "#0E3A44", borderColor: palette.primary, transform: [{ translateY: -2 }] },
   cardName: { fontFamily: fonts.display, fontSize: 14, color: palette.ink },
   cardOwned: { fontFamily: fonts.body, fontSize: 13, color: palette.coin },
   detail: { padding: 12, marginBottom: 12, gap: 10 },
   detailHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   detailBtns: { flexDirection: "row", gap: 8 },
-  have: { fontFamily: fonts.body, fontSize: 12, color: palette.accent, marginTop: 3 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: palette.surfaceAlt, borderRadius: 18, padding: 10, marginBottom: 10 },
-  icon: { fontSize: 30 },
+  have: { fontFamily: fonts.body, fontSize: 12, color: palette.primary, marginTop: 3 },
+  pressed: { transform: [{ scale: 0.96 }], opacity: 0.85 },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: palette.surfaceDark, borderRadius: 18, padding: 8, marginBottom: 10, borderWidth: 1, borderColor: "rgba(217,164,65,0.22)" },
   title: { fontFamily: fonts.body, fontSize: 17, color: palette.ink },
   sub: { fontFamily: fonts.bodyRegular, fontSize: 12, lineHeight: 16, color: palette.inkSoft, marginTop: 1 },
   note: { borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 10, borderWidth: 1.5 },

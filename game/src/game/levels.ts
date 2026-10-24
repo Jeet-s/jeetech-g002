@@ -7,11 +7,15 @@
  *   │ ─ └ ┌ ┐ ┘ ├ ┬ ┤ ┴   rotatable straight / elbow / tee
  *   ┃ ━ ┗ ┏ ┓ ┛ ┣ ┳ ┫ ┻   the same pieces BOLTED (fixed, cannot rotate)
  *   +                     cross-overpass (fixed; two channels that never mix)
+ *   p                     mixer vat: a drain that needs blue AND red together
  *   B R G Y / b r g y     source / drain of that colour (mouth inferred from the
  *                         one neighbour that faces it in the solved board)
  *   .                     blocked plate
  * A design may pin an endpoint's mouth (`mouths: {"r,c": "E"}`) when a decoy
  * pressed against it would otherwise make the reading ambiguous.
+ * `gates: {"r,c": "b"}` turns that pipe into a colour FILTER (only its colour
+ * passes); `gears: [["r,c", "r,c"], ...]` links loose pipes that turn together
+ * (their tap counts must agree, so one turn count lines the whole group up).
  * Taps grid: a digit per rotatable pipe = clockwise taps from its start to its
  * solved orientation (0 = starts aligned / decoy at rest); "." elsewhere.
  *
@@ -21,7 +25,7 @@
  * The stored `solution` is the solved board, so validate.ts can PROVE each
  * level is winnable on the real engine; `par` is the tap count back to it.
  */
-import { Cell, Color, LevelDef, N, E, S, W, DIRS, isWon, orientationsOf, parOf, starsFor as starsForEngine } from "./engine";
+import { Cell, Color, LevelDef, MIX, N, E, S, W, DIRS, isWon, orientationsOf, parOf, starsFor as starsForEngine } from "./engine";
 import { DESIGNS, CHAPTERS, type Design } from "./designs";
 import BUDGETS from "./budgets.json";
 
@@ -38,7 +42,7 @@ const HEAVY: Record<string, number> = {
   "┃": N | S, "━": E | W, "┗": N | E, "┏": E | S, "┓": S | W, "┛": W | N,
   "┣": N | E | S, "┳": E | S | W, "┫": S | W | N, "┻": W | N | E,
 };
-const COLOR_OF: Record<string, Color> = { b: "blue", r: "red", g: "green", y: "yellow" };
+const COLOR_OF: Record<string, Color> = { b: "blue", r: "red", g: "green", y: "yellow", p: "purple" };
 const OPP: Record<number, number> = { [N]: S, [E]: W, [S]: N, [W]: E };
 const DIR_OF = { N, E, S, W } as const;
 
@@ -78,7 +82,8 @@ export function buildLevel(d: Design, number: number, budget = (BUDGETS as numbe
         });
         if (!mouths.length) throw new Error(`L${number}: endpoint ${ch} at ${r},${c} has no facing pipe`);
         const color = COLOR_OF[lower];
-        if (!colors.includes(color)) colors.push(color);
+        if (ch !== lower && MIX[color]) throw new Error(`L${number}: ${ch} — a mixer colour has no source`);
+        for (const fluid of MIX[color] ?? [color]) if (!colors.includes(fluid)) colors.push(fluid);
         const forced = d.mouths?.[`${r},${c}`];
         if (forced) mouths.splice(0, mouths.length, DIR_OF[forced]);
         if (mouths.length > 1) ambiguous.push({ i: cells.length, mouths });
@@ -89,14 +94,16 @@ export function buildLevel(d: Design, number: number, budget = (BUDGETS as numbe
       if (!m) throw new Error(`L${number}: unknown glyph '${ch}' at ${r},${c}`);
       const fixed = HEAVY[ch] !== undefined;
       const o = orientationsOf(m);
+      const gate = d.gates?.[`${r},${c}`];
+      const filter = gate ? { t: "gate" as const, g: true, c: COLOR_OF[gate] } : { t: "pipe" as const };
       if (fixed) {
         if (tp !== "." && tp !== "0") throw new Error(`L${number}: bolted pipe at ${r},${c} cannot be scrambled`);
-        cells.push({ t: "pipe", m, r: 0, o, f: true });
+        cells.push({ ...filter, m, r: 0, o, f: true });
         continue;
       }
-      const k = Number(tp);
+      const k = tp === "." ? 0 : Number(tp); // "." on a loose pipe = starts at rest
       if (!(k >= 0 && k < o)) throw new Error(`L${number}: bad tap count '${tp}' at ${r},${c}`);
-      cells.push({ t: "pipe", m, r: (o - k) % o, o, f: false });
+      cells.push({ ...filter, m, r: (o - k) % o, o, f: false });
     }
   }
   const order: Color[] = ["blue", "red", "green", "yellow"];
@@ -104,10 +111,29 @@ export function buildLevel(d: Design, number: number, budget = (BUDGETS as numbe
 
   const rotatable: number[] = [];
   cells.forEach((cell, i) => { if (!cell.f) rotatable.push(i); });
+  for (const key of Object.keys(d.gates ?? {})) {
+    const [r, c] = key.split(",").map(Number);
+    if (cells[r * w + c]?.t !== "gate") throw new Error(`L${number}: gate at ${key} is not on a pipe`);
+  }
+  const groups = (d.gears ?? []).map((g, k) => g.map((key) => {
+    const [r, c] = key.split(",").map(Number);
+    const i = r * w + c;
+    if (!cells[i] || cells[i].f || cells[i].k !== undefined) throw new Error(`L${number}: gear ${key} must be a loose pipe in one group`);
+    cells[i].k = k;
+    return i;
+  }));
+  for (const g of groups) {
+    // Every member must line up after the same number of taps (otherwise the group could never be solved).
+    const agree = [0, 1, 2, 3].some((t) => g.every((i) => (cells[i].r + t) % cells[i].o === 0));
+    if (!agree) throw new Error(`L${number}: gear group ${g} has tap counts that never agree`);
+  }
+  const tapTargets = rotatable.filter((i) => cells[i].k === undefined || groups[cells[i].k!][0] === i);
   const def: LevelDef = {
     id: `L${number}`, number, w, h, cells,
     solution: cells.map(() => 0),
     rotatable,
+    groups,
+    taps: tapTargets,
     par: 0,
     budget,
     colors,

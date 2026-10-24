@@ -20,7 +20,9 @@
 // ---- Directions (bit flags) -------------------------------------------------
 export const N = 1, E = 2, S = 4, W = 8;
 export const DIRS = [N, E, S, W] as const;
-export type Color = "blue" | "red" | "green" | "yellow";
+export type Color = "blue" | "red" | "green" | "yellow" | "purple";
+/** Mixer vats: a drain of a blended colour needs EVERY fluid listed here (and nothing else). */
+export const MIX: Partial<Record<Color, Color[]>> = { purple: ["blue", "red"] };
 
 /** Rotate a 4-bit port mask 90° clockwise (N→E→S→W→N). */
 export function rotCW(mask: number): number {
@@ -60,8 +62,10 @@ export interface Cell {
   c?: Color;
   /** Cross-overpass: two independent straight channels (fluids cross, never mix). */
   x?: boolean;
-  /** Colour gate: only its own colour may pass through. */
+  /** Colour filter gate: only its own colour (`c`) may pass through. */
   g?: boolean;
+  /** Gear group id: every pipe in the group turns together (see LevelDef.groups). */
+  k?: number;
 }
 
 export interface LevelDef {
@@ -72,8 +76,12 @@ export interface LevelDef {
   cells: Cell[]; // length w*h, row-major
   /** Target rotation per cell proving solvability (fixed cells keep r). */
   solution: number[];
-  /** Indices of rotatable cells — the moves available to a player. */
+  /** Indices of rotatable cells (every pipe a player can turn, geared or not). */
   rotatable: number[];
+  /** Geared pipes: cells that turn together. A tap on any member turns the whole group. */
+  groups: number[][];
+  /** One tap target per independent move (loose pipes + the first cell of each gear group). */
+  taps: number[];
   /** Minimum clockwise taps from the start state to a solved state. */
   par: number;
   /** Taps allowed before the level is lost (tuned by the bots). */
@@ -98,13 +106,24 @@ export const startState = (def: LevelDef): GState => ({
   moves: 0,
 });
 
-export const legalMoves = (s: GState): number[] => s.def.rotatable;
+export const legalMoves = (s: GState): number[] => s.def.taps;
 
-/** A tap rotates one tile 90° clockwise. */
+/** Cells that turn when cell `i` is tapped: its gear group, or just itself. */
+export function turnsWith(def: LevelDef, i: number): number[] {
+  const k = def.cells[i].k;
+  return k === undefined ? [i] : def.groups[k];
+}
+
+/** Rotations after tapping cell `i` (a quarter turn clockwise for it and every pipe geared to it). */
+export function turn(def: LevelDef, rot: number[], i: number): number[] {
+  const next = rot.slice();
+  for (const j of turnsWith(def, i)) next[j] = (next[j] + 1) % 4;
+  return next;
+}
+
+/** A tap rotates one tile (and its gear partners) 90° clockwise. */
 export function applyMove(s: GState, i: number): GState {
-  const rot = s.rot.slice();
-  rot[i] = (rot[i] + 1) % 4;
-  return { def: s.def, rot, moves: s.moves + 1 };
+  return { def: s.def, rot: turn(s.def, s.rot, i), moves: s.moves + 1 };
 }
 
 // ---- Flow simulation --------------------------------------------------------
@@ -178,8 +197,9 @@ export function flow(def: LevelDef, rot: number[]) {
   const sinks = sinkIndices(def);
   const satisfied = sinks.map((si) => {
     const want = def.cells[si].c!;
-    const own = byColor[want][si];
-    const foreign = def.colors.some((c) => c !== want && byColor[c][si]);
+    const need = MIX[want] ?? [want];
+    const own = need.every((c) => byColor[c]?.[si]);
+    const foreign = def.colors.some((c) => !need.includes(c) && byColor[c][si]);
     return own && !foreign;
   });
   return { byColor, sinks, satisfied };
@@ -199,25 +219,27 @@ export function statusOf(s: GState): Status {
 /**
  * Heuristic progress in [0,1] — what a human reads as "closer to done".
  *
- * Each rotatable tile contributes how nearly it is aligned to a connecting
- * orientation: a tile one tap from lining up scores higher than one three taps
- * away. This mirrors a competent player who can see which way a pipe "wants" to
- * turn — the signal climbs on every useful tap with no dead-ends, so a careful
- * (low-noise) player reliably out-performs a careless one and level difficulty
- * comes cleanly from route length versus the move budget. Equals 1 only when
- * every tile lines up — the solved, fully-connected board.
+ * Each tap target (a loose pipe, or a whole gear group) contributes how nearly it
+ * is aligned to a connecting orientation: a tile one tap from lining up scores
+ * higher than one three taps away. This mirrors a competent player who can see
+ * which way a pipe "wants" to turn — and who reads a gear group as one unit — so
+ * the signal climbs on every useful tap with no dead-ends, a careful (low-noise)
+ * player reliably out-performs a careless one and level difficulty comes cleanly
+ * from route length versus the move budget. Equals 1 only when every tile lines
+ * up — the solved, fully-connected board.
  */
 export function progressOf(s: GState): number {
   const { def, rot } = s;
-  const rotatable = def.rotatable;
-  if (!rotatable.length) return 1;
+  const taps = def.taps;
+  if (!taps.length) return 1;
   let score = 0;
-  for (const i of rotatable) {
-    const cell = def.cells[i];
-    const remaining = tapsBetween(cell.m, rot[i], 0); // CW taps left to line up
-    score += 1 - remaining / cell.o;
+  for (const i of taps) {
+    const group = turnsWith(def, i);
+    const o = group.reduce((a, j) => Math.max(a, def.cells[j].o), 1);
+    const remaining = Math.max(0, tapsToSolve(def, rot, i)); // CW taps left to line the group up
+    score += 1 - remaining / o;
   }
-  return score / rotatable.length;
+  return score / taps.length;
 }
 
 // ---- Scoring ----------------------------------------------------------------
@@ -228,11 +250,31 @@ export function tapsBetween(base: number, from: number, to: number): number {
   return 0;
 }
 
+/** Taps on `i` (turning its whole gear group) that bring every member to the stored solution; -1 if none can. */
+export function tapsToSolve(def: LevelDef, rot: number[], i: number): number {
+  const group = turnsWith(def, i);
+  for (let k = 0; k < 4; k++) {
+    if (group.every((j) => maskAt(def.cells[j].m, rot[j] + k) === maskAt(def.cells[j].m, def.solution[j]))) return k;
+  }
+  return -1;
+}
+
 /** Par = minimum taps from the start state to the stored solution. */
 export function parOf(def: LevelDef): number {
+  const start = def.cells.map((c) => c.r);
   let sum = 0;
-  for (const i of def.rotatable) sum += tapsBetween(def.cells[i].m, def.cells[i].r, def.solution[i]);
+  for (const i of def.taps) sum += Math.max(0, tapsToSolve(def, start, i));
   return sum;
+}
+
+/**
+ * The next tap the solver plays from `rot` toward the stored solution (QA replay, hints):
+ * a tap target whose group is not yet lined up, or null when nothing is left to turn.
+ */
+export function nextTap(def: LevelDef, rot: number[]): number | null {
+  if (isWon(def, rot)) return null;
+  for (const i of def.taps) if (tapsToSolve(def, rot, i) > 0) return i;
+  return null;
 }
 
 /** 3 wrenches if solved at/near par, 2 if reasonably efficient, else 1. */

@@ -1,39 +1,36 @@
 /**
- * Flow Forge — the board renderer (Skia), drawn with the studio art
- * (assets/art): painted-steel pipe sprites seated in an anodized-teal tray.
+ * Flow Forge — the board renderer (Skia), drawn with the studio art (assets/art, baked by scripts/bake-art.py):
+ * a recessed graphite tray (board_tray) with an engraved socket (tile_slot) under every cell, brass-collared
+ * glass pipes seated in the sockets, valve-wheel sources, glass-lens drains, colour filter lenses, gear-linked
+ * pipe groups and the mixer vat.
  *
- * Every pipe is the same sprite in two states: an EMPTY copy (colour-matrixed
- * to dark satin steel with dry glass) and a FILLED copy (the luminous fluid —
- * the sprite's own cyan, hue-shifted for red / green / yellow) that is clipped
- * to exactly the arms the fluid reaches, so a mis-rotated pipe visibly breaks
- * the line. Fluid fades in with a 600 ms glow sweep, bubbles drift through lit
- * pipes, sources pulse a ring every 1.2 s, drains glow in their colour and a
- * leaking pipe flashes a red double-beat.
+ * Every pipe is one baked sprite in two states: DRY (smoky empty glass, brass collars) and FILLED (the luminous
+ * fluid of its colour) clipped to exactly the arms the fluid reaches, so a mis-rotated pipe visibly breaks the
+ * line. Fluid fades in with a 600 ms sweep, bubbles drift through lit pipes, sources pulse a ring, drains glow
+ * in the colour they want, and a leaking pipe pulses a red drip at its open end.
  *
- * FEEL: a tap reacts the INSTANT the finger lands (onPressIn: a 1.06 press
- * swell and a soft blue glow ring) and the engine's new rotation spins the
- * pipe a 150 ms quarter turn with an elastic settle. The drawn angle is driven
- * only by the engine state, so the board is always what the game evaluates. Every joint a
- * turn makes sends a pulse of the fluid's colour through both pipes and 7
- * sparks out of the seam; a joint it breaks puffs pale steam. Tapping a bolted
- * piece flashes a red X on that tile with a short "Blocked" toast.
- * Pure presentational — logic stays in the engine.
+ * FEEL: a tap reacts the INSTANT the finger lands (press swell + cyan rim ring on every pipe that turns) and the
+ * engine's new rotation spins the pipe a 150 ms quarter turn with an elastic settle. The drawn angle is driven
+ * only by the engine state (`rot`), so the board is always what the game evaluates. Each joint a turn makes
+ * pops the sparkle-burst art in the fluid's colour; a joint it breaks puffs pale steam. Tapping a bolted piece
+ * flashes a red X with a short "Bolted" toast. Pure presentational — logic stays in the engine.
  */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import {
-  Canvas, Circle, ColorMatrix, DashPathEffect, Group, Image as SkImage, LinearGradient as SkGradient,
-  Path, RadialGradient, RoundedRect, Skia, useImage, vec, type SkImage as SkImageT,
+  Canvas, Circle, DashPathEffect, Group, Image as SkImage, Path, RadialGradient, RoundedRect, Skia,
+  SweepGradient, useImage, vec, type SkImage as SkImageT,
 } from "@shopify/react-native-skia";
 import {
   Easing, makeMutable, useDerivedValue, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { Cell, Color, LevelDef, N, E, S, W, DIRS } from "./engine";
-import { FlowView, TileFluid, litJoints, tileFluid } from "./board";
+import { Cell, Color, LevelDef, N, E, S, W, DIRS, turnsWith } from "./engine";
+import { FlowView, TileFluid, litJoints, rotateDir, tileFluid } from "./board";
 import { art } from "../art";
-import { NineSlice, feedback, fonts, haptic, palette, springs } from "../ui";
+import { sprites } from "../sprites";
+import { NineSlice, TapRipple, feedback, fonts, palette, springs } from "../ui";
 
 // ── Board chrome (shared with GameScreen so fit maths + overlays match) ──────
 /** The part of the level grid that holds pieces. Fully empty outer rows /
@@ -50,10 +47,10 @@ export function boardView(def: LevelDef) {
   if (r1 < 0) return { r0: 0, c0: 0, rows: def.h, cols: def.w };
   return { r0, c0, rows: r1 - r0 + 1, cols: c1 - c0 + 1 };
 }
-/** Bezel (tray art) + inner well around the grid, in dp, for a tile size. */
+/** Tray rim (board_tray art) + inner margin around the grid, in whole dp, for a tile size. */
 export function boardChrome(tile: number) {
-  const bezel = Math.round(Math.max(12, Math.min(20, tile * 0.2)));
-  const well = Math.round(tile * 0.1);
+  const bezel = Math.round(Math.max(14, Math.min(28, tile * 0.3)));
+  const well = Math.round(Math.max(4, tile * 0.1));
   return { bezel, well, edge: bezel + well };
 }
 
@@ -64,50 +61,57 @@ interface TileAnim {
   flash: SharedValue<number>; // white glow (tap / win)
   error: SharedValue<number>; // red leak pulse
   fill: SharedValue<number>; // 0..1 fluid fill sweep
-  ring: SharedValue<number>; // soft blue glow ring around a tapped tile
+  ring: SharedValue<number>; // cyan rim ring around a tapped tile
   pulse: SharedValue<number>; // fluid-coloured pulse when a joint connects
   deny: SharedValue<number>; // red X on a tap that can't rotate anything
 }
 
-/** Quarter-turn: 150 ms with a small elastic overshoot past the 90°. */
-const TURN = { duration: 150, easing: Easing.out(Easing.back(2.2)) };
+/** Quarter-turn: a quick swing 10° PAST the new angle, then a 140 ms ease-out settle onto it. */
+const OVERSHOOT = 10;
+const SWING = { duration: 90, easing: Easing.out(Easing.quad) };
+const SETTLE = { duration: 140, easing: Easing.out(Easing.cubic) };
 
+type State = "dry" | Color;
+type Sheet = Record<State, SkImageT | null>;
 interface Sprites {
-  straight: SkImageT | null; elbow: SkImageT | null; blocker: SkImageT | null;
-  source: SkImageT | null; drainBlue: SkImageT | null; drainRed: SkImageT | null; sweep: SkImageT | null;
+  straight: Sheet; elbow: Sheet; tee: Sheet; stub: Sheet; lens: Sheet;
+  wheel: SkImageT | null; slot: SkImageT | null; slotSunk: SkImageT | null; slotLift: SkImageT | null; gears: (SkImageT | null)[]; sparkle: SkImageT | null; glow: SkImageT | null;
+}
+const STATES: State[] = ["dry", "blue", "red", "green", "yellow", "purple"];
+
+/** All board sprites, loaded once per board (fixed hook order). */
+function useSprites(): Sprites {
+  const sheet = (shape: "straight" | "elbow" | "tee" | "stub"): Sheet => {
+    const out = {} as Sheet;
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    for (const st of STATES) out[st] = useImage(sprites.pipe(shape, st));
+    return out;
+  };
+  const straight = sheet("straight"), elbow = sheet("elbow"), tee = sheet("tee"), stub = sheet("stub");
+  const lens = {} as Sheet;
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  for (const st of STATES) lens[st] = useImage(sprites.lens(st));
+  const wheel = useImage(sprites.valveWheel);
+  const slot = useImage(sprites.slot);
+  const slotSunk = useImage(sprites.slotSunk);
+  const slotLift = useImage(sprites.slotLift);
+  const g0 = useImage(sprites.gear[0]), g1 = useImage(sprites.gear[1]), g2 = useImage(sprites.gear[2]);
+  const sparkle = useImage(art.fx_sparkle_burst);
+  const glow = useImage(art.fx_flow_glow);
+  const all = [...STATES.flatMap((s) => [straight[s], elbow[s], tee[s], stub[s], lens[s]]), wheel, slot, slotSunk, slotLift, g0, g1, g2, sparkle, glow];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => ({ straight, elbow, tee, stub, lens, wheel, slot, slotSunk, slotLift, gears: [g0, g1, g2], sparkle, glow }), all);
 }
 
 // ── Colour ───────────────────────────────────────────────────────────────────
 const FLUID: Record<Color, { glow: string; hot: string }> = {
-  blue: { glow: "#2EC4FF", hot: "#D8F6FF" },
+  blue: { glow: "#12D1E6", hot: "#D6FBFF" },
   red: { glow: "#FF5D5D", hot: "#FFE1DC" },
-  green: { glow: "#4FE38A", hot: "#E2FFEC" },
-  yellow: { glow: "#FFC23D", hot: "#FFF4D6" },
+  green: { glow: "#6EE06F", hot: "#E4FFE4" },
+  yellow: { glow: "#FFB24D", hot: "#FFF1D6" },
+  purple: { glow: "#B16BFF", hot: "#F1E2FF" },
 };
-/** Hue rotation (feColorMatrix) that turns the sprite's cyan fluid into each colour. */
-function hueMatrix(deg: number, gain = 1): number[] {
-  const c = Math.cos((deg * Math.PI) / 180), s = Math.sin((deg * Math.PI) / 180);
-  const m = [
-    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
-    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.14, 0.072 - c * 0.072 - s * 0.283,
-    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072,
-  ].map((v) => v * gain);
-  return [m[0], m[1], m[2], 0, 0, m[3], m[4], m[5], 0, 0, m[6], m[7], m[8], 0, 0, 0, 0, 0, 1, 0];
-}
-const HUE: Record<Color, number[] | null> = {
-  blue: null, // the art's own cyan
-  red: hueMatrix(162, 1.05),
-  green: hueMatrix(-72),
-  yellow: hueMatrix(-150, 1.08),
-};
-/** Dry pipe: dark satin steel; the cyan glass reads as an empty dark tube. */
-const LW = [0.62, 0.26, 0.12];
-const DRY = [
-  ...LW.map((v) => v * 1.22), 0, 0,
-  ...LW.map((v) => v * 1.34), 0, 0,
-  ...LW.map((v) => v * 1.5), 0, 0,
-  0, 0, 0, 1, 0,
-];
+const GEAR_TINT = ["#E7B74A", "#C9D2DA", "#D9814A"];
 
 // Global flow clock — drives the drifting bubbles in every lit pipe.
 const FLOW_CLOCK = makeMutable(0);
@@ -141,10 +145,7 @@ function halfRect(d: number, T: number) {
   if (d === E) return `M${c} 0H${T}V${T}H${c}Z`;
   return `M0 0H${c}V${T}H0Z`;
 }
-function circlePath(cx: number, cy: number, r: number) {
-  return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z`;
-}
-const pathCache =new Map<string, ReturnType<typeof Skia.Path.MakeFromSVGString>>();
+const pathCache = new Map<string, ReturnType<typeof Skia.Path.MakeFromSVGString>>();
 function P(d: string) {
   if (!pathCache.has(d)) pathCache.set(d, Skia.Path.MakeFromSVGString(d));
   return pathCache.get(d)!;
@@ -153,10 +154,10 @@ function P(d: string) {
  *  bubbles can ride the pipe on the UI thread without touching Skia paths. */
 function routeSamples(dirs: number[], T: number, n = 16): number[][] {
   const c = T / 2;
-  const pts: number[] = [];
   const out: number[][] = [];
   if (dirs.length === 2) {
     const [a, b] = dirs.map((d) => edgePt(d, T));
+    const pts: number[] = [];
     for (let k = 0; k <= n; k++) {
       const t = k / n, u = 1 - t;
       pts.push(u * u * a[0] + 2 * u * t * c + t * t * b[0], u * u * a[1] + 2 * u * t * c + t * t * b[1]);
@@ -164,7 +165,6 @@ function routeSamples(dirs: number[], T: number, n = 16): number[][] {
     out.push(pts);
     return out;
   }
-  // tee / cross / single arm: centre → each port
   for (const d of dirs) {
     const e = edgePt(d, T);
     const arm: number[] = [];
@@ -173,7 +173,6 @@ function routeSamples(dirs: number[], T: number, n = 16): number[][] {
   }
   return out;
 }
-
 
 /** One glass bubble riding a route, phase-offset on the shared flow clock (plain circles: no layers, no images). */
 function Bubble({ route, offset, size, color }: { route: number[]; offset: number; size: number; color: string }) {
@@ -187,72 +186,49 @@ function Bubble({ route, offset, size, color }: { route: number[]; offset: numbe
   const cx = useDerivedValue(() => pos(0));
   const cy = useDerivedValue(() => pos(1));
   const r = useDerivedValue(() => size * (0.7 + 0.5 * Math.sin(((FLOW_CLOCK.value + offset) % 1) * Math.PI)));
-  const opacity = useDerivedValue(() => 0.85 * Math.sin(((FLOW_CLOCK.value + offset) % 1) * Math.PI));
+  const opacity = useDerivedValue(() => 0.8 * Math.sin(((FLOW_CLOCK.value + offset) % 1) * Math.PI));
   return (
     <Group opacity={opacity}>
-      <Circle cx={cx} cy={cy} r={r} color={color} />
+      <Circle cx={cx} cy={cy} r={r} color={color} opacity={0.5} />
       <Circle cx={cx} cy={cy} r={r} style="stroke" strokeWidth={1} color="rgba(255,255,255,0.9)" />
     </Group>
   );
 }
 
-/** Quarter turns that bring a base sprite onto this mask. */
+/** Quarter turns that bring each baked base sprite onto a mask. */
 const STRAIGHT_K: Record<number, number> = { [E | W]: 0, [N | S]: 1 };
 const ELBOW_K: Record<number, number> = { [E | S]: 0, [S | W]: 1, [W | N]: 2, [N | E]: 3 };
+const TEE_K: Record<number, number> = { [E | S | W]: 0, [S | W | N]: 1, [W | N | E]: 2, [N | E | S]: 3 };
 /** Quarter turns from the base "points East" frame to direction d. */
 const DIR_K: Record<number, number> = { [E]: 0, [S]: 1, [W]: 2, [N]: 3 };
 
 // ── Sprite pieces ─────────────────────────────────────────────────────────────
-/** Draw a pipe sprite for `mask` (straight / elbow / generic arms) in the cell. */
-function PipeSprite({ mask, T, sp, matrix }: { mask: number; T: number; sp: Sprites; matrix: number[] | null }) {
-  const c = T / 2;
-  const filter = matrix ? <ColorMatrix matrix={matrix} /> : null;
-  if (STRAIGHT_K[mask] !== undefined) {
-    const th = T * 0.44;
-    return (
-      <Group origin={vec(c, c)} transform={[{ rotate: (STRAIGHT_K[mask] * Math.PI) / 2 }]}>
-        <SkImage image={sp.straight} x={0} y={c - th / 2} width={T} height={th} fit="fill">{filter}</SkImage>
-      </Group>
-    );
-  }
-  if (ELBOW_K[mask] !== undefined) {
-    // Elbow art: arms leave S and E; arm centres sit at x=128 / y=130 of 451×512.
-    const sx = c / 322, sy = c / 381;
-    return (
-      <Group origin={vec(c, c)} transform={[{ rotate: (ELBOW_K[mask] * Math.PI) / 2 }]}>
-        <SkImage image={sp.elbow} x={c - 128 * sx} y={c - 130 * sy} width={451 * sx} height={512 * sy} fit="fill">{filter}</SkImage>
-      </Group>
-    );
-  }
-  // Tee / cross: one half-straight per arm, collar in the middle.
-  const th = T * 0.44;
+function Turned({ k, T, children }: { k: number; T: number; children: React.ReactNode }) {
+  return k ? <Group origin={vec(T / 2, T / 2)} transform={[{ rotate: (k * Math.PI) / 2 }]}>{children}</Group> : <>{children}</>;
+}
+
+/** The pipe sprite for `mask` (in the tile's base frame), dry or filled with one fluid. */
+function PipeSprite({ mask, T, sp, state }: { mask: number; T: number; sp: Sprites; state: State }) {
+  const img = (sheet: Sheet) => <SkImage image={sheet[state]} x={0} y={0} width={T} height={T} fit="fill" />;
+  if (STRAIGHT_K[mask] !== undefined) return <Turned k={STRAIGHT_K[mask]} T={T}>{img(sp.straight)}</Turned>;
+  if (ELBOW_K[mask] !== undefined) return <Turned k={ELBOW_K[mask]} T={T}>{img(sp.elbow)}</Turned>;
+  if (TEE_K[mask] !== undefined) return <Turned k={TEE_K[mask]} T={T}>{img(sp.tee)}</Turned>;
+  // Fallback (single port): a stub capped by the dead-end lens.
+  const d = DIRS.find((x) => mask & x) ?? E;
   return (
     <Group>
-      {DIRS.filter((d) => mask & d).map((d) => (
-        <Group key={d} origin={vec(c, c)} transform={[{ rotate: (DIR_K[d] * Math.PI) / 2 }]} clip={P(`M${c - th * 0.3} 0H${T}V${T}H${c - th * 0.3}Z`)}>
-          <SkImage image={sp.straight} x={0} y={c - th / 2} width={T} height={th} fit="fill">{filter}</SkImage>
-        </Group>
-      ))}
-      <Circle cx={c} cy={c} r={th * 0.62} color="#2B3740" />
-      <Circle cx={c} cy={c} r={th * 0.62} style="stroke" strokeWidth={2} color="rgba(190,215,228,0.35)" />
+      <Turned k={DIR_K[d]} T={T}>{img(sp.stub)}</Turned>
+      <SkImage image={sp.lens.dry} x={T * 0.3} y={T * 0.3} width={T * 0.4} height={T * 0.4} fit="contain" />
     </Group>
   );
 }
 
-/** A straight stub from the centre to one port (endpoint connectors). */
-function Stub({ d, T, sp, matrix }: { d: number; T: number; sp: Sprites; matrix: number[] | null }) {
-  const c = T / 2;
-  const th = T * 0.4;
-  return (
-    <Group origin={vec(c, c)} transform={[{ rotate: (DIR_K[d] * Math.PI) / 2 }]} clip={P(`M${c} 0H${T}V${T}H${c}Z`)}>
-      <SkImage image={sp.straight} x={0} y={c - th / 2} width={T} height={th} fit="fill">
-        {matrix ? <ColorMatrix matrix={matrix} /> : null}
-      </SkImage>
-    </Group>
-  );
+/** A straight stub from the centre to one port (endpoint mouths). */
+function Stub({ d, T, sp, state }: { d: number; T: number; sp: Sprites; state: State }) {
+  return <Turned k={DIR_K[d]} T={T}><SkImage image={sp.stub[state]} x={0} y={0} width={T} height={T} fit="fill" /></Turned>;
 }
 
-/** Fluid layer: the coloured sprite clipped to the lit arms, plus glow + bubbles. */
+/** Fluid layer: the filled sprite clipped to the lit arms, with a soft halo that sweeps in as it fills. */
 function Fluid({ cell, fluid, T, sp, fill }: {
   cell: Cell; fluid: TileFluid; T: number; sp: Sprites; fill: SharedValue<number>;
 }) {
@@ -271,11 +247,11 @@ function Fluid({ cell, fluid, T, sp, fill }: {
         const hex = FLUID[col];
         return (
           <Group key={col}>
-            {/* soft halo under the metal (two feathered strokes) — sweeps along the pipe as it fills */}
-            <Path path={P(center)} style="stroke" strokeWidth={T * 0.62} strokeCap="round" color={hex.glow} opacity={0.12} end={sweepEnd} />
-            <Path path={P(center)} style="stroke" strokeWidth={T * 0.5} strokeCap="round" color={hex.glow} opacity={0.18} end={sweepEnd} />
+            {/* inner bloom: two feathered strokes under the glass, sweeping along the pipe as it fills */}
+            <Path path={P(center)} style="stroke" strokeWidth={T * 0.5} strokeCap="round" color={hex.glow} opacity={0.1} end={sweepEnd} />
+            <Path path={P(center)} style="stroke" strokeWidth={T * 0.36} strokeCap="round" color={hex.glow} opacity={0.16} end={sweepEnd} />
             <Group clip={clip} opacity={fill}>
-              <PipeSprite mask={cell.m} T={T} sp={sp} matrix={HUE[col]} />
+              <PipeSprite mask={cell.m} T={T} sp={sp} state={col} />
             </Group>
           </Group>
         );
@@ -284,21 +260,42 @@ function Fluid({ cell, fluid, T, sp, fill }: {
   );
 }
 
-/** Bolted pipes sit on a riveted steel plate so players read "fixed" at a glance. */
-function BoltPlate({ T }: { T: number }) {
-  const p = T * 0.07, s = T - p * 2, r = T * 0.035;
-  const corners = [[p + T * 0.09, p + T * 0.09], [T - p - T * 0.09, p + T * 0.09], [p + T * 0.09, T - p - T * 0.09], [T - p - T * 0.09, T - p - T * 0.09]];
+/** Loose pipes ride a turntable cradle: two brass rails on opposite sides of the tile that turn WITH the pipe. They
+ *  read "this one turns" (bolted pipes get the riveted plate instead), and since the pair swaps between the
+ *  N/S and E/W edges on every quarter turn, each turn visibly changes every part of the tile — even an edge or
+ *  corner the pipe's arms never reach. */
+function Cradle({ T }: { T: number }) {
+  const h = Math.max(3, Math.round(T * 0.06));
+  const x0 = T * 0.12, len = T * 0.76, inset = Math.max(2, Math.round(T * 0.045));
+  const rv = Math.max(1.5, h * 0.42);
   return (
     <Group>
-      <RoundedRect x={p} y={p} width={s} height={s} r={T * 0.12}>
-        <SkGradient start={vec(0, p)} end={vec(0, p + s)} colors={["#3A4A55", "#26333C"]} />
-      </RoundedRect>
-      <RoundedRect x={p} y={p} width={s} height={s} r={T * 0.12} style="stroke" strokeWidth={1.5} color="rgba(190,215,228,0.22)" />
+      {[inset, T - inset - h].map((y) => (
+        <Group key={y}>
+          <RoundedRect x={x0} y={y + 1.2} width={len} height={h} r={h / 2} color="rgba(0,0,0,0.5)" />
+          <RoundedRect x={x0} y={y} width={len} height={h} r={h / 2} color={palette.brassDark} />
+          <RoundedRect x={x0 + 1} y={y} width={len - 2} height={h * 0.55} r={h / 2} color={palette.brass} opacity={0.9} />
+          {[x0 + h * 0.8, x0 + len - h * 0.8].map((cx) => (
+            <Circle key={cx} cx={cx} cy={y + h / 2} r={rv} color="#FFE7A8" />
+          ))}
+        </Group>
+      ))}
+    </Group>
+  );
+}
+
+/** Bolted pipes sit on a raised, riveted plate (the socket art lifted) so players read "fixed" at a glance. */
+function BoltPlate({ T, sp }: { T: number; sp: Sprites }) {
+  const p = T * 0.04, r = T * 0.04, q = T * 0.15;
+  const corners = [[q, q], [T - q, q], [q, T - q], [T - q, T - q]];
+  return (
+    <Group>
+      <SkImage image={sp.slotLift} x={p} y={p} width={T - p * 2} height={T - p * 2} fit="fill" />
       {corners.map(([x, y], k) => (
         <Group key={k}>
-          <Circle cx={x} cy={y + 1} r={r} color="rgba(0,0,0,0.55)" />
+          <Circle cx={x} cy={y + 1.2} r={r} color="rgba(0,0,0,0.55)" />
           <Circle cx={x} cy={y} r={r}>
-            <RadialGradient c={vec(x - r * 0.3, y - r * 0.3)} r={r * 1.4} colors={["#DCE7EC", "#7F939D", "#45545D"]} />
+            <RadialGradient c={vec(x - r * 0.35, y - r * 0.35)} r={r * 1.5} colors={["#FFE7A8", "#C8922F", "#6A4414"]} />
           </Circle>
         </Group>
       ))}
@@ -308,52 +305,59 @@ function BoltPlate({ T }: { T: number }) {
 
 /** Cross-overpass: the N–S channel runs underneath, the E–W channel bridges over it. */
 function Overpass({ fluid, T, sp, fill }: { fluid: TileFluid; T: number; sp: Sprites; fill: SharedValue<number> }) {
-  const c = T / 2, th = T * 0.44;
+  const c = T / 2;
   const under = fluid.arm[N] ?? fluid.arm[S] ?? null;
   const over = fluid.arm[E] ?? fluid.arm[W] ?? null;
-  const straight = (vertical: boolean, col: Color | null) => (
-    <Group origin={vec(c, c)} transform={[{ rotate: vertical ? Math.PI / 2 : 0 }]}>
-      <SkImage image={sp.straight} x={0} y={c - th / 2} width={T} height={th} fit="fill">
-        <ColorMatrix matrix={DRY} />
-      </SkImage>
+  const channel = (vertical: boolean, col: Color | null) => (
+    <Turned k={vertical ? 1 : 0} T={T}>
+      <SkImage image={sp.straight.dry} x={0} y={0} width={T} height={T} fit="fill" />
       {col ? (
         <Group opacity={fill}>
-          <SkImage image={sp.straight} x={0} y={c - th / 2} width={T} height={th} fit="fill">
-            {HUE[col] ? <ColorMatrix matrix={HUE[col]!} /> : null}
-          </SkImage>
+          <SkImage image={sp.straight[col]} x={0} y={0} width={T} height={T} fit="fill" />
         </Group>
       ) : null}
-    </Group>
+    </Turned>
   );
   return (
     <Group>
-      {straight(true, under)}
+      {channel(true, under)}
       {/* the bridge's shadow falls across the lower channel */}
-      <RoundedRect x={T * 0.04} y={c - th * 0.62} width={T * 0.92} height={th * 1.24} r={th * 0.3} color="rgba(0,0,0,0.38)" />
-      {straight(false, over)}
-      {/* bridge collars where the upper channel lifts off */}
-      {[c - th * 0.75, c + th * 0.75].map((x) => (
-        <RoundedRect key={x} x={x - T * 0.035} y={c - th * 0.62} width={T * 0.07} height={th * 1.24} r={T * 0.02} color="#5B6C76" />
-      ))}
+      <RoundedRect x={T * 0.06} y={c - T * 0.2} width={T * 0.88} height={T * 0.44} r={T * 0.14} color="rgba(0,0,0,0.42)" />
+      <Group transform={[{ translateY: -T * 0.03 }]}>{channel(false, over)}</Group>
     </Group>
   );
 }
 
-const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDelay }: {
+/** Colour filter: a glass lens of its colour set into the pipe's middle — only that fluid passes. */
+function FilterLens({ T, sp, color, lit }: { T: number; sp: Sprites; color: Color; lit: boolean }) {
+  const s = T * 0.44, x = (T - s) / 2;
+  return (
+    <Group>
+      <Circle cx={T / 2} cy={T / 2 + T * 0.02} r={s * 0.52} color="rgba(0,0,0,0.45)" />
+      <SkImage image={sp.lens[color]} x={x} y={x} width={s} height={s} fit="contain" opacity={lit ? 1 : 0.82} />
+      <Circle cx={T / 2} cy={T / 2} r={s * 0.5} style="stroke" strokeWidth={Math.max(1.5, T * 0.025)} color={FLUID[color].glow} opacity={0.75} />
+    </Group>
+  );
+}
+
+const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDelay, beckon }: {
   cell: Cell; rot: number; fluid: TileFluid; T: number; anim: TileAnim; sp: Sprites; winPulse: number; winDelay: number;
+  /** Tutorial beckon (the pipe the coach wants turned): a 1.05x double beat every 1.5 s. */
+  beckon?: SharedValue<number>;
 }) {
   const c = T / 2;
   const rotatable = !cell.f;
   const dirs = openDirs(cell);
   const live = !!fluid.body || dirs.some((d) => fluid.arm[d]);
-  const leaking = live && cell.t === "pipe" && dirs.some((d) => !fluid.arm[d]);
+  const leaking = live && (cell.t === "pipe" || cell.t === "gate") && dirs.some((d) => !fluid.arm[d]);
 
-  // Fluid arrives: 600 ms fill sweep + a soft swell, acknowledged where it happens.
+  // Fluid arrives: 500 ms fill sweep + a soft swell, acknowledged where it happens.
   const wasLive = useRef(false);
   useEffect(() => {
     if (live && !wasLive.current) {
       anim.fill.value = 0;
-      anim.fill.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
+      // 500 ms (was 600): water reaches each joint ~17% sooner, so a connection lands snappier.
+      anim.fill.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.cubic) });
       anim.scale.value = withSequence(withTiming(1.05, { duration: 90 }), withSpring(1, springs.pop));
     } else if (!live) {
       anim.fill.value = 0;
@@ -379,7 +383,8 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
       if (delta === 3) delta = -1;
       if (delta !== 0) {
         turns.current += delta;
-        anim.angle.value = withTiming(turns.current * 90, TURN);
+        const target = turns.current * 90;
+        anim.angle.value = withSequence(withTiming(target + delta * OVERSHOOT, SWING), withTiming(target, SETTLE));
       }
     }
     // Dead end: this turn feeds fluid into a pipe whose other end goes nowhere —
@@ -403,16 +408,14 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
   }, [winPulse]);
 
   const transform = useDerivedValue(() =>
-    rotatable
-      ? [{ rotateZ: (anim.angle.value * Math.PI) / 180 }, { scale: anim.scale.value }]
-      : [{ rotateZ: (rot * Math.PI) / 2 }, { scale: anim.scale.value }],
+    rotatable ? [{ rotateZ: (anim.angle.value * Math.PI) / 180 }] : [{ rotateZ: (rot * Math.PI) / 2 }],
   );
-  const flashOpacity = useDerivedValue(() => anim.flash.value * 0.55);
+  const plain = useDerivedValue(() => [{ scale: anim.scale.value * (beckon ? beckon.value : 1) }]);
+  const flashOpacity = useDerivedValue(() => anim.flash.value * 0.5);
   const errorOpacity = useDerivedValue(() => anim.error.value * 0.9);
   const dripR = useDerivedValue(() => T * (0.06 + anim.error.value * 0.05));
   const pulseOpacity = useDerivedValue(() => anim.pulse.value * 0.9);
   const pulseCol = FLUID[fluid.body ?? "blue"];
-  // Open (leaking) ends of a live pipe, in the tile's base frame.
   const leaks = leaking ? dirs.filter((d) => !fluid.arm[d]) : [];
 
   if (cell.t === "empty") return null;
@@ -420,67 +423,68 @@ const Tile = memo(function Tile({ cell, rot, fluid, T, anim, sp, winPulse, winDe
   const glowPath = P(armsPath(dirs, T));
 
   return (
-    <Group origin={vec(c, c)} transform={transform}>
-      {isEndpoint ? (
-        <Endpoint cell={cell} T={T} fluid={fluid} sp={sp} fill={anim.fill} />
-      ) : (
-        <>
-          {cell.f && cell.t === "pipe" ? <BoltPlate T={T} /> : null}
-          {/* ambient occlusion under the pipe */}
-          <Path path={glowPath} style="stroke" strokeWidth={T * 0.5} strokeCap="round" color="rgba(0,0,0,0.18)" transform={[{ translateY: T * 0.06 }]} />
-          <Path path={glowPath} style="stroke" strokeWidth={T * 0.44} strokeCap="round" color="rgba(0,0,0,0.3)" transform={[{ translateY: T * 0.045 }]} />
-          {cell.x ? (
-            <Overpass fluid={fluid} T={T} sp={sp} fill={anim.fill} />
-          ) : (
-            <>
-              <PipeSprite mask={cell.m} T={T} sp={sp} matrix={DRY} />
-              <Fluid cell={cell} fluid={fluid} T={T} sp={sp} fill={anim.fill} />
-            </>
-          )}
-        </>
-      )}
-      {/* connection pulse: the fluid's colour races through the pipe */}
-      <Group opacity={pulseOpacity}>
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.42} strokeCap="round" color={pulseCol.glow} opacity={0.35} />
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.26} strokeCap="round" color={pulseCol.glow} opacity={0.6} />
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.07} strokeCap="round" color={pulseCol.hot} />
-      </Group>
-      {/* leak: a red drip pulsing at each open end the fluid spills from */}
-      {leaks.length ? (
-        <Group opacity={errorOpacity}>
-          {leaks.map((d) => {
-            const [x, y] = edgePt(d, T);
-            const ix = c + (x - c) * 0.86, iy = c + (y - c) * 0.86;
-            return (
-              <Group key={d}>
-                <Circle cx={ix} cy={iy} r={T * 0.18}>
-                  <RadialGradient c={vec(ix, iy)} r={T * 0.18} colors={["rgba(255,93,93,0.6)", "rgba(255,93,93,0)"]} />
-                </Circle>
-                <Circle cx={ix} cy={iy} r={dripR} color="#FFD0CA" />
-              </Group>
-            );
-          })}
+    <Group origin={vec(c, c)} transform={plain}>
+      {cell.f && !isEndpoint && !cell.x ? <BoltPlate T={T} sp={sp} /> : null}
+      <Group origin={vec(c, c)} transform={transform}>
+        {rotatable && !isEndpoint ? <Cradle T={T} /> : null}
+        {isEndpoint ? (
+          <Endpoint cell={cell} T={T} fluid={fluid} sp={sp} fill={anim.fill} />
+        ) : (
+          <>
+            {/* contact shadow in the socket */}
+            <Path path={glowPath} style="stroke" strokeWidth={T * 0.34} strokeCap="round" color="rgba(0,0,0,0.32)" transform={[{ translateY: T * 0.05 }]} />
+            {cell.x ? (
+              <Overpass fluid={fluid} T={T} sp={sp} fill={anim.fill} />
+            ) : (
+              <>
+                <PipeSprite mask={cell.m} T={T} sp={sp} state="dry" />
+                <Fluid cell={cell} fluid={fluid} T={T} sp={sp} fill={anim.fill} />
+                {cell.g && cell.c ? <FilterLens T={T} sp={sp} color={cell.c} lit={live} /> : null}
+              </>
+            )}
+          </>
+        )}
+        {/* connection pulse: the fluid's colour races through the pipe */}
+        <Group opacity={pulseOpacity}>
+          <Path path={glowPath} style="stroke" strokeWidth={T * 0.4} strokeCap="round" color={pulseCol.glow} opacity={0.3} />
+          <Path path={glowPath} style="stroke" strokeWidth={T * 0.08} strokeCap="round" color={pulseCol.hot} />
         </Group>
-      ) : null}
-      {/* glow flash on tap / win sweep */}
-      <Group opacity={flashOpacity}>
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.4} strokeCap="round" color="#FFFFFF" opacity={0.4} />
-        <Path path={glowPath} style="stroke" strokeWidth={T * 0.28} strokeCap="round" color="#FFFFFF" />
+        {/* leak: a red drip pulsing at each open end the fluid spills from */}
+        {leaks.length ? (
+          <Group opacity={errorOpacity}>
+            {leaks.map((d) => {
+              const [x, y] = edgePt(d, T);
+              const ix = c + (x - c) * 0.86, iy = c + (y - c) * 0.86;
+              return (
+                <Group key={d}>
+                  <Circle cx={ix} cy={iy} r={T * 0.18}>
+                    <RadialGradient c={vec(ix, iy)} r={T * 0.18} colors={["rgba(255,93,93,0.6)", "rgba(255,93,93,0)"]} />
+                  </Circle>
+                  <Circle cx={ix} cy={iy} r={dripR} color="#FFD0CA" />
+                </Group>
+              );
+            })}
+          </Group>
+        ) : null}
+        {/* glow flash on tap / win sweep */}
+        <Group opacity={flashOpacity}>
+          <Path path={glowPath} style="stroke" strokeWidth={T * 0.3} strokeCap="round" color="#FFFFFF" opacity={0.45} />
+        </Group>
       </Group>
     </Group>
   );
 });
 
-/** Sources: beveled emitter housing with a flow-arrow decal and a 1.2 s pulsing
- *  ring. Drains: deep-set ports that glow in their colour, brighter once filled. */
+/** Sources: the valve — a lens brimming with its colour under the red hand-wheel. Drains: an empty glass lens
+ *  ringed in the colour it wants (pale fluid ghosted inside), brimming once filled. The mixer vat: a bigger lens
+ *  ringed half blue / half red. */
 function Endpoint({ cell, T, fluid, sp, fill }: { cell: Cell; T: number; fluid: TileFluid; sp: Sprites; fill: SharedValue<number> }) {
   const c = T / 2;
   const col: Color = cell.c ?? "blue";
   const hex = FLUID[col];
   const isSource = cell.t === "source";
+  const vat = !isSource && col === "purple";
   const port = openDirs(cell)[0] ?? S;
-
-  // The endless source ring / unsolved-drain breathing lives on the ambient overlay (EndpointFx).
 
   // Drain-solved beat: a bright ring that expands and fades.
   const burst = useSharedValue(0);
@@ -492,54 +496,45 @@ function Endpoint({ cell, T, fluid, sp, fill }: { cell: Cell; T: number; fluid: 
     wasSolved.current = fluid.solvedSink;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fluid.solvedSink]);
-  const burstR = useDerivedValue(() => T * (0.36 + (1 - burst.value) * 0.3));
+  const burstR = useDerivedValue(() => T * (0.34 + (1 - burst.value) * 0.3));
   const burstOp = useDerivedValue(() => burst.value * 0.9);
 
-  if (isSource) {
-    // Emitter art: head centre (188,188), stem leaves straight down to y=512.
-    const s = c / 324;
-    return (
-      <Group>
-        <Circle cx={c} cy={c} r={T * 0.5}>
-          <RadialGradient c={vec(c, c)} r={T * 0.5} colors={[hex.glow, "rgba(0,0,0,0)"]} positions={[0.35, 1]} />
-        </Circle>
-        {/* housing + stem toward the port */}
-        <Group origin={vec(c, c)} transform={[{ rotate: ((DIR_K[port] - 1) * Math.PI) / 2 }]}>
-          <SkImage image={sp.source} x={c - 188.5 * s} y={c - 188 * s} width={378 * s} height={512 * s} fit="fill">
-            {HUE[col] ? <ColorMatrix matrix={HUE[col]!} /> : null}
-          </SkImage>
-        </Group>
-        {/* the round emitter head again, turned so its arrow decal points the way the fluid flows */}
-        <Group origin={vec(c, c)} transform={[{ rotate: ((DIR_K[port] + 1) * Math.PI) / 2 }]} clip={P(circlePath(c, c, 186 * s))}>
-          <SkImage image={sp.source} x={c - 188.5 * s} y={c - 188 * s} width={378 * s} height={512 * s} fit="fill">
-            {HUE[col] ? <ColorMatrix matrix={HUE[col]!} /> : null}
-          </SkImage>
-        </Group>
-      </Group>
-    );
-  }
-
-  const disc = T * 0.76;
-  const drainImg = col === "red" ? sp.drainRed : sp.drainBlue;
-  const drainMatrix = col === "red" || col === "blue" ? null : HUE[col];
+  const d = (vat ? 0.78 : 0.64) * T;
+  const lx = c - d / 2;
+  const ringW = Math.max(2.5, T * (vat ? 0.07 : 0.055));
+  const armCol = fluid.arm[port] ?? null;
   return (
     <Group>
-      <Stub d={port} T={T} sp={sp} matrix={DRY} />
-      {fluid.arm[port] ? (
-        <Group opacity={fill}>
-          <Stub d={port} T={T} sp={sp} matrix={HUE[col]} />
+      <Stub d={port} T={T} sp={sp} state="dry" />
+      {isSource || armCol ? (
+        <Group opacity={isSource ? 1 : fill}>
+          <Stub d={port} T={T} sp={sp} state={isSource ? col : armCol!} />
         </Group>
       ) : null}
-      <Circle cx={c} cy={c + T * 0.04} r={disc * 0.54}>
-        <RadialGradient c={vec(c, c + T * 0.04)} r={disc * 0.54} colors={["rgba(0,0,0,0.6)", "rgba(0,0,0,0)"]} positions={[0.8, 1]} />
+      {/* colour halo behind the housing */}
+      <Circle cx={c} cy={c} r={d * 0.62}>
+        <RadialGradient c={vec(c, c)} r={d * 0.62} colors={[hex.glow, "rgba(0,0,0,0)"]} positions={[0.3, 1]} />
       </Circle>
-      <SkImage image={drainImg} x={c - disc / 2} y={c - disc / 2} width={disc} height={disc} fit="contain">
-        {drainMatrix ? <ColorMatrix matrix={drainMatrix} /> : null}
-      </SkImage>
-      {/* soft inner glow in the drain's colour */}
-      <Circle cx={c} cy={c} r={disc * 0.34} opacity={fluid.solvedSink ? 0.95 : 0.3}>
-        <RadialGradient c={vec(c, c)} r={disc * 0.34} colors={[hex.hot, hex.glow, "rgba(0,0,0,0)"]} positions={[0, 0.35, 1]} />
-      </Circle>
+      <Circle cx={c} cy={c + T * 0.035} r={d * 0.5} color="rgba(0,0,0,0.5)" />
+      {isSource ? (
+        <>
+          <SkImage image={sp.lens[col]} x={lx} y={lx} width={d} height={d} fit="contain" />
+          {/* the valve's red hand-wheel across the lens */}
+          <SkImage image={sp.wheel} x={c - d * 0.5} y={c - d * 0.17} width={d} height={d * 0.3} fit="contain" />
+        </>
+      ) : (
+        <>
+          <SkImage image={sp.lens.dry} x={lx} y={lx} width={d} height={d} fit="contain" />
+          <SkImage image={sp.lens[col]} x={lx} y={lx} width={d} height={d} fit="contain" opacity={fluid.solvedSink ? 1 : 0.28} />
+          {vat ? (
+            <Circle cx={c} cy={c} r={d * 0.5 + ringW * 0.2} style="stroke" strokeWidth={ringW}>
+              <SweepGradient c={vec(c, c)} colors={[FLUID.blue.glow, FLUID.purple.glow, FLUID.red.glow, FLUID.purple.glow, FLUID.blue.glow]} />
+            </Circle>
+          ) : (
+            <Circle cx={c} cy={c} r={d * 0.5 + ringW * 0.2} style="stroke" strokeWidth={ringW} color={hex.glow} opacity={0.9} />
+          )}
+        </>
+      )}
       <Circle cx={c} cy={c} r={burstR} style="stroke" strokeWidth={Math.max(2, T * 0.05)} color={hex.hot} opacity={burstOp} />
     </Group>
   );
@@ -555,26 +550,51 @@ function Spark({ x, y, angle, dist, size, color, t }: {
   const op = useDerivedValue(() => (t.value < 0.15 ? t.value / 0.15 : 1 - (t.value - 0.15) / 0.85));
   return <Circle cx={cx} cy={cy} r={r} color={color} opacity={op} />;
 }
-const STEAM = "rgba(214,228,236,0.85)";
+const STEAM = "rgba(226,232,238,0.85)";
 
-/** 7 sparks (joint made, in the fluid's colour) or steam puffs (joint broken). */
-function JointBurst({ x, y, color, T, seed }: { x: number; y: number; color: string; T: number; seed: number }) {
+/** Joint made: the sparkle-burst art pops (80 ms) and fades, tinted to the fluid. Joint broken: a steam puff. */
+function JointBurst({ x, y, color, T, seed, sp }: { x: number; y: number; color: string; T: number; seed: number; sp: Sprites }) {
   const t = useSharedValue(0);
   useEffect(() => {
-    t.value = withTiming(1, { duration: color === STEAM ? 520 : 440, easing: Easing.out(Easing.quad) });
+    t.value = withTiming(1, { duration: color === STEAM ? 520 : 480, easing: Easing.out(Easing.quad) });
   }, [t, color]);
-  const flash = useDerivedValue(() => (1 - t.value) * 0.8);
-  const flashR = useDerivedValue(() => T * (0.08 + t.value * 0.16));
+  const s = T * 0.7;
+  const pop = useDerivedValue(() => [{ scale: t.value < 0.17 ? 0.3 + (t.value / 0.17) * 0.8 : 1.1 - (t.value - 0.17) * 0.25 }, { rotate: t.value * 0.6 + seed }]);
+  const op = useDerivedValue(() => (t.value < 0.17 ? 1 : Math.max(0, 1 - (t.value - 0.17) / 0.83)));
+  if (color === STEAM) {
+    return (
+      <Group>
+        {Array.from({ length: 6 }, (_, k) => {
+          const a = (k / 6) * Math.PI * 2 + seed;
+          return <Spark key={k} x={x} y={y} angle={a} dist={T * (0.2 + ((k * 37) % 10) / 50)} size={T * 0.05} color={STEAM} t={t} />;
+        })}
+      </Group>
+    );
+  }
+  return (
+    <Group opacity={op} origin={vec(x, y)} transform={pop}>
+      <Circle cx={x} cy={y} r={s * 0.32}>
+        <RadialGradient c={vec(x, y)} r={s * 0.32} colors={[color, "rgba(0,0,0,0)"]} />
+      </Circle>
+      <SkImage image={sp.sparkle} x={x - s / 2} y={y - s / 2} width={s} height={s} fit="contain" />
+    </Group>
+  );
+}
+
+/** A turn's exhale: 3-4 tiny bubbles / steam puffs per open end (6-10 in all), fanned outward and fading in 420 ms. */
+function TurnPuff({ ends, color, T, seed }: { ends: { x: number; y: number; a: number }[]; color: string; T: number; seed: number }) {
+  const t = useSharedValue(0);
+  useEffect(() => {
+    t.value = withTiming(1, { duration: 420, easing: Easing.out(Easing.quad) });
+  }, [t]);
+  const per = Math.max(2, Math.min(4, Math.round(9 / Math.max(1, ends.length))));
   return (
     <Group>
-      {color !== STEAM ? (
-        <Circle cx={x} cy={y} r={flashR} color={color} opacity={flash} />
-      ) : null}
-      {Array.from({ length: 7 }, (_, k) => {
-        const a = (k / 7) * Math.PI * 2 + seed;
-        const dist = T * (0.22 + ((k * 37 + seed * 11) % 10) / 40);
-        return <Spark key={k} x={x} y={y} angle={a} dist={dist} size={T * (color === STEAM ? 0.05 : 0.035)} color={color} t={t} />;
-      })}
+      {ends.flatMap((e, n) => Array.from({ length: per }, (_, k) => {
+        const h = ((seed * 7 + n * 13 + k * 29) % 17) / 17;
+        const a = e.a + (k / Math.max(1, per - 1) - 0.5) * 1.1;
+        return <Spark key={`${n}-${k}`} x={e.x} y={e.y} angle={a} dist={T * (0.16 + h * 0.18)} size={T * (0.03 + h * 0.025)} color={color} t={t} />;
+      }))}
     </Group>
   );
 }
@@ -597,11 +617,11 @@ function FlowFx({ cell, fluid, rot, x, y, T, anim }: { cell: Cell; fluid: TileFl
           const hex = FLUID[col];
           return (
             <Group key={col}>
-              <Path path={P(armsPath(all ? dirs : arms, T))} style="stroke" strokeWidth={T * 0.05} strokeCap="round" color={hex.hot} opacity={0.45}>
-                <DashPathEffect intervals={[T * 0.12, T * 0.3]} phase={phase} />
+              <Path path={P(armsPath(all ? dirs : arms, T))} style="stroke" strokeWidth={T * 0.04} strokeCap="round" color={hex.hot} opacity={0.4}>
+                <DashPathEffect intervals={[T * 0.1, T * 0.32]} phase={phase} />
               </Path>
               {routeSamples(all ? dirs : arms, T, 8).map((route, j, rs) => (
-                <Bubble key={j} route={route} offset={j / rs.length} size={T * 0.045} color={hex.hot} />
+                <Bubble key={j} route={route} offset={j / rs.length} size={T * 0.035} color={hex.hot} />
               ))}
             </Group>
           );
@@ -621,9 +641,9 @@ function EndpointFx({ x, y, T, color, source, solved }: { x: number; y: number; 
     pulse.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.sin) }), -1);
   }, [on, pulse]);
   const c = T / 2, hex = FLUID[color];
-  const ringR = useDerivedValue(() => T * (0.3 + pulse.value * 0.2));
-  const ringOp = useDerivedValue(() => (1 - pulse.value) * 0.85);
-  const coreOp = useDerivedValue(() => 0.3 * Math.sin(pulse.value * Math.PI));
+  const ringR = useDerivedValue(() => T * (0.34 + pulse.value * 0.18));
+  const ringOp = useDerivedValue(() => (1 - pulse.value) * 0.8);
+  const coreOp = useDerivedValue(() => 0.35 * Math.sin(pulse.value * Math.PI));
   if (!on) return null;
   return (
     <Group transform={[{ translateX: x }, { translateY: y }]}>
@@ -638,24 +658,40 @@ function EndpointFx({ x, y, T, color, source, solved }: { x: number; y: number; 
   );
 }
 
-/** Tap glow ring + red "blocked" X, drawn square to the grid (never spins). */
+/** Tap rim ring + red "bolted" X, drawn square to the grid (never spins). */
 function TileOverlay({ x, y, T, anim }: { x: number; y: number; T: number; anim: TileAnim }) {
-  const ringOp = useDerivedValue(() => anim.ring.value * 0.85);
-  const ringIn = useDerivedValue(() => 4 - (1 - anim.ring.value) * 3);
-  const ringW = useDerivedValue(() => T - (4 - (1 - anim.ring.value) * 3) * 2);
+  const ringOp = useDerivedValue(() => anim.ring.value * 0.9);
+  const ringIn = useDerivedValue(() => 3 - (1 - anim.ring.value) * 2);
+  const ringW = useDerivedValue(() => T - (3 - (1 - anim.ring.value) * 2) * 2);
   const denyOp = useDerivedValue(() => anim.deny.value);
   const denyT = useDerivedValue(() => [{ scale: 0.7 + anim.deny.value * 0.35 }]);
   const c = T / 2, k = T * 0.2;
   return (
     <Group transform={[{ translateX: x }, { translateY: y }]}>
       <Group opacity={ringOp}>
-        <RoundedRect x={ringIn} y={ringIn} width={ringW} height={ringW} r={T * 0.18} style="stroke" strokeWidth={T * 0.07} color={palette.accent} />
+        <RoundedRect x={ringIn} y={ringIn} width={ringW} height={ringW} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color={palette.glowSoft} />
+        <RoundedRect x={ringIn} y={ringIn} width={ringW} height={ringW} r={T * 0.16} style="stroke" strokeWidth={T * 0.035} color={palette.glow} />
       </Group>
       <Group opacity={denyOp} origin={vec(c, c)} transform={denyT}>
         <Circle cx={c} cy={c} r={T * 0.34}>
-          <RadialGradient c={vec(c, c)} r={T * 0.34} colors={["rgba(255,93,93,0.4)", "rgba(255,93,93,0)"]} />
+          <RadialGradient c={vec(c, c)} r={T * 0.34} colors={["rgba(255,93,93,0.45)", "rgba(255,93,93,0)"]} />
         </Circle>
         <Path path={P(`M${c - k} ${c - k}L${c + k} ${c + k}M${c + k} ${c - k}L${c - k} ${c + k}`)} style="stroke" strokeWidth={T * 0.08} strokeCap="round" color={palette.danger} />
+      </Group>
+    </Group>
+  );
+}
+
+/** A geared pipe's gear: the gear-token art (tinted per group) on the tile corner, spinning as the group turns. */
+function GearBadge({ x, y, T, anim, group, sp }: { x: number; y: number; T: number; anim: TileAnim; group: number; sp: Sprites }) {
+  const s = Math.round(T * 0.34);
+  const gx = x + T * 0.03, gy = y + T * 0.03;
+  const spin = useDerivedValue(() => [{ rotate: (anim.angle.value * Math.PI) / 180 }]);
+  return (
+    <Group>
+      <Circle cx={gx + s / 2} cy={gy + s / 2 + 1.5} r={s * 0.48} color="rgba(0,0,0,0.45)" />
+      <Group origin={vec(gx + s / 2, gy + s / 2)} transform={spin}>
+        <SkImage image={sp.gears[group % 3]} x={gx} y={gy} width={s} height={s} fit="contain" />
       </Group>
     </Group>
   );
@@ -664,15 +700,18 @@ function TileOverlay({ x, y, T, anim }: { x: number; y: number; T: number; anim:
 /** Level-1 guide: a faint dotted line along the route and a breathing ring on the next pipe to turn. */
 export interface Guide { route: number[]; next: number | null; drainPulse: boolean }
 
-const TRAY = { w: 512, h: 508, cap: 72, inset: 54 };
+/** board_tray art: 422x512, rim + cyan accent line inside 62 px caps (the inner panel starts at ~56 px). */
+const TRAY = { w: 422, h: 512, cap: 62, inset: 56, fill: "#39332D" };
 
-/** The full board: the anodized tray, a recessed grid and the pipe tiles. */
+/** The full board: the graphite tray, a socket per cell and the pipe tiles. */
 export function PipeBoard({
-  def, rot, fv, tile, onTapCell, hintIndex, winPulse, interactive = true, guide,
+  def, rot, fv, tile, onTapCell, hintIndex, winPulse, interactive = true, guide, beckon = null,
 }: {
   def: LevelDef; rot: number[]; fv: FlowView; tile: number;
   onTapCell: (i: number) => void; hintIndex: number | null; winPulse: number; interactive?: boolean;
   guide?: Guide | null;
+  /** Tutorial target: this pipe beats 1.05x twice every 1.5 s until the player turns it. */
+  beckon?: number | null;
 }) {
   const T = tile;
   // Keep each tile's fluid object identical while its fluid is unchanged, so a turn only re-renders the tiles it affects.
@@ -688,18 +727,7 @@ export function PipeBoard({
   }, [def, rot, fv]);
   const view = useMemo(() => boardView(def), [def]);
   const { bezel, well } = boardChrome(T);
-
-  const straight = useImage(art.pipe_straight);
-  const elbow = useImage(art.pipe_elbow);
-  const blocker = useImage(art.tile_blocker);
-  const source = useImage(art.endpoint_source_blue);
-  const drainBlue = useImage(art.endpoint_drain_blue);
-  const drainRed = useImage(art.endpoint_drain_red);
-  const sweep = useImage(art.fx_glow_sweep);
-  const sp = useMemo<Sprites>(
-    () => ({ straight, elbow, blocker, source, drainBlue, drainRed, sweep }),
-    [straight, elbow, blocker, source, drainBlue, drainRed, sweep],
-  );
+  const sp = useSprites();
 
   const anims = useMemo<TileAnim[]>(
     () => def.cells.map((cell) => ({
@@ -721,7 +749,7 @@ export function PipeBoard({
     FLOW_CLOCK.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.linear }), -1);
   }, []);
 
-  // Win: the art's glow bar sweeps across the board (600 ms cubic).
+  // Win: the flow-glow art sweeps across the board (600 ms cubic).
   const sweepX = useSharedValue(-2);
   useEffect(() => {
     if (winPulse > 0) {
@@ -729,6 +757,16 @@ export function PipeBoard({
       sweepX.value = withDelay(180, withTiming(1.3, { duration: 600, easing: Easing.inOut(Easing.cubic) }));
     }
   }, [winPulse, sweepX]);
+
+  // Tutorial beckon: two quick 1.05x beats, then rest — one cycle every 1.5 s.
+  const beckonS = useSharedValue(1);
+  useEffect(() => {
+    if (beckon == null) { beckonS.value = withTiming(1, { duration: 120 }); return; }
+    const beat = (ms: number) => withTiming(1.05, { duration: ms, easing: Easing.out(Easing.quad) });
+    const back = (ms: number) => withTiming(1, { duration: ms, easing: Easing.in(Easing.quad) });
+    beckonS.value = 1;
+    beckonS.value = withDelay(400, withRepeat(withSequence(beat(130), back(130), beat(130), back(150), withTiming(1, { duration: 960 })), -1));
+  }, [beckon, beckonS]);
 
   // Hint ring breathes so the suggested pipe is unmissable.
   const hintPulse = useSharedValue(0);
@@ -745,11 +783,10 @@ export function PipeBoard({
   const outerW = innerW + bezel * 2;
   const outerH = innerH + bezel * 2;
   const capScale = bezel / TRAY.inset;
-  const rr = Math.max(8, T * 0.14);
 
-  const sweepW = innerW * 0.22;
+  const sweepW = innerW * 0.3;
   const sweepT = useDerivedValue(() => [{ translateX: sweepX.value * innerW - sweepW / 2 }]);
-  const sweepOp = useDerivedValue(() => (sweepX.value > -0.3 && sweepX.value < 1.3 ? 0.85 : 0));
+  const sweepOp = useDerivedValue(() => (sweepX.value > -0.3 && sweepX.value < 1.3 ? 0.75 : 0));
 
   const cellXY = (i: number) => {
     const col = (i % def.w) - view.c0, row = ((i / def.w) | 0) - view.r0;
@@ -760,16 +797,31 @@ export function PipeBoard({
     return col >= 0 && row >= 0 && col < view.cols && row < view.rows;
   };
 
-  function spin(i: number) {
-    const a = anims[i];
-    a.scale.value = withSequence(withTiming(1.06, { duration: 60 }), withSpring(1, springs.pop));
-    a.flash.value = withSequence(withTiming(0.8, { duration: 30 }), withTiming(0, { duration: 200 }));
-    a.ring.value = withSequence(withTiming(1, { duration: 50 }), withTiming(0, { duration: 380, easing: Easing.out(Easing.quad) }));
+  // Two-ring ripples at the finger (inner-board frame), so every tap reads even when the turn is subtle.
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
+  const rippleId = useRef(0);
+  const rippleTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => rippleTimers.current.forEach(clearTimeout), []);
+  function ripple(x: number, y: number) {
+    const id = ++rippleId.current;
+    setRipples((r) => [...r.slice(-3), { id, x, y }]);
+    rippleTimers.current.push(setTimeout(() => setRipples((r) => r.filter((q) => q.id !== id)), 320));
+  }
+
+  function spin(i: number, x: number, y: number) {
+    // Every pipe that turns with this tap (its gear group) pops to 1.08x in 120 ms, springs back and flashes its rim.
+    for (const j of turnsWith(def, i)) {
+      const a = anims[j];
+      a.scale.value = withSequence(withTiming(1.08, { duration: 120, easing: Easing.out(Easing.back(2)) }), withSpring(1, springs.pop));
+      a.flash.value = withSequence(withTiming(0.8, { duration: 30 }), withTiming(0, { duration: 220 }));
+      a.ring.value = withSequence(withTiming(1, { duration: 50 }), withTiming(0.55, { duration: 90 }), withTiming(1, { duration: 70 }), withTiming(0, { duration: 320, easing: Easing.out(Easing.quad) }));
+    }
+    ripple(x, y);
     feedback("move", "light");
     onTapCell(i);
   }
 
-  // Bolted pipes, sources and drains can't turn: red X on that tile + a "Blocked" toast.
+  // Bolted pipes, sources and drains can't turn: red X on that tile + a "Bolted" toast.
   const [toast, setToast] = useState<{ i: number; k: number } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
@@ -783,7 +835,7 @@ export function PipeBoard({
     toastTimer.current = setTimeout(() => setToast(null), 900);
   }
 
-  // Joints made / broken since the last board: pulse + sparks, or a puff of steam.
+  // Joints made / broken since the last board: pulse + sparkle, or a puff of steam.
   const [bursts, setBursts] = useState<{ id: number; x: number; y: number; color: string }[]>([]);
   const prevJoints = useRef<Map<string, Color> | null>(null);
   const burstId = useRef(0);
@@ -822,6 +874,61 @@ export function PipeBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fluids]);
 
+  // Every pipe a turn moves breathes a few bubbles (lit pipe: its fluid) or steam puffs (dry pipe) out of its ends.
+  const [puffs, setPuffs] = useState<{ id: number; ends: { x: number; y: number; a: number }[]; color: string }[]>([]);
+  const prevRot = useRef<{ def: LevelDef; rot: number[] } | null>(null);
+  useEffect(() => {
+    const before = prevRot.current?.def === def ? prevRot.current.rot : null;
+    prevRot.current = { def, rot };
+    if (!before || !interactive) return;
+    const added: typeof puffs = [];
+    rot.forEach((r, i) => {
+      if (r === before[i] || added.length >= 3 || !inView(i)) return;
+      const { x, y } = cellXY(i);
+      const ends = DIRS.filter((d) => def.cells[i].m & d).map((bd) => {
+        const d = rotateDir(bd, r);
+        const [ex, ey] = edgePt(d, T);
+        return { x: x + T / 2 + (ex - T / 2) * 0.86, y: y + T / 2 + (ey - T / 2) * 0.86, a: d === N ? -Math.PI / 2 : d === E ? 0 : d === S ? Math.PI / 2 : Math.PI };
+      });
+      const col = Object.values(fluids[i].arm).find(Boolean) as Color | undefined;
+      added.push({ id: ++burstId.current, ends, color: col ? FLUID[col].hot : STEAM });
+    });
+    if (!added.length) return;
+    setPuffs((p) => [...p.slice(-4), ...added]);
+    const ids = new Set(added.map((p) => p.id));
+    burstTimers.current.push(setTimeout(() => setPuffs((p) => p.filter((x) => !ids.has(x.id))), 520));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rot, def]);
+
+  // A drain just filled (or the board is won): a bright sweep races along the whole lit network, source → drains,
+  // so the completed path telegraphs success before the celebration.
+  const solvedCount = fluids.filter((f) => f.solvedSink).length;
+  const prevSolved = useRef<{ def: LevelDef; n: number } | null>(null);
+  useEffect(() => {
+    const before = prevSolved.current?.def === def ? prevSolved.current.n : null;
+    prevSolved.current = { def, n: solvedCount };
+    if (before == null || solvedCount <= before || !interactive) return;
+    const adj = new Map<number, number[]>();
+    const link = (a: number, b: number) => { adj.set(a, [...(adj.get(a) ?? []), b]); adj.set(b, [...(adj.get(b) ?? []), a]); };
+    litJoints(def, rot, fluids).forEach((_, key) => {
+      const i = parseInt(key, 10);
+      link(i, key.endsWith("E") ? i + 1 : i + def.w);
+    });
+    const dist = new Map<number, number>();
+    const queue: number[] = [];
+    def.cells.forEach((c, i) => { if (c.t === "source") { dist.set(i, 0); queue.push(i); } });
+    while (queue.length) {
+      const i = queue.shift()!;
+      for (const j of adj.get(i) ?? []) if (!dist.has(j)) { dist.set(j, dist.get(i)! + 1); queue.push(j); }
+    }
+    const far = Math.max(1, ...dist.values());
+    const step = Math.min(45, 520 / far);
+    dist.forEach((d, i) => {
+      anims[i].pulse.value = withDelay(60 + d * step, withSequence(withTiming(1, { duration: 70 }), withTiming(0, { duration: 340, easing: Easing.out(Easing.quad) })));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solvedCount, def]);
+
   // Guide: the drain throbs once the first pipe has been turned right.
   const guidePulse = useSharedValue(0);
   useEffect(() => {
@@ -830,48 +937,41 @@ export function PipeBoard({
   const drainRingR = useDerivedValue(() => T * (0.36 + guidePulse.value * 0.34));
   const drainRingOp = useDerivedValue(() => (1 - guidePulse.value) * 0.9);
 
-  // grid line path (2 px, #2A3A45) with the cell corners rounded off
-  const grid = useMemo(() => {
-    let d = "";
-    for (let r = 0; r < view.rows; r++) {
-      for (let c = 0; c < view.cols; c++) {
-        const x = well + c * T + 1.5, y = well + r * T + 1.5, s = T - 3, k = Math.min(6, s / 4);
-        d += `M${x + k} ${y}H${x + s - k}Q${x + s} ${y} ${x + s} ${y + k}V${y + s - k}Q${x + s} ${y + s} ${x + s - k} ${y + s}H${x + k}Q${x} ${y + s} ${x} ${y + s - k}V${y + k}Q${x} ${y} ${x + k} ${y}Z`;
-      }
-    }
-    return Skia.Path.MakeFromSVGString(d);
-  }, [view, T, well]);
+  // Gear drive belts: a brass chain linking the gears of each group (they turn together).
+  const belts = useMemo(() => def.groups.map((g, k) => {
+    const pts = g.filter(inView).map((i) => { const { x, y } = cellXY(i); const s = T * 0.34; return [x + T * 0.03 + s / 2, y + T * 0.03 + s / 2]; });
+    return { k, path: P(pts.map(([x, y], n) => `${n ? "L" : "M"}${x} ${y}`).join("")) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [def, T, well, view]);
 
   return (
     <View style={[styles.frame, { width: outerW, height: outerH }]}>
       <NineSlice
-        source={art.board_frame_tray}
+        source={art.board_tray}
         w={TRAY.w} h={TRAY.h}
         cap={{ l: TRAY.cap, t: TRAY.cap, r: TRAY.cap, b: TRAY.cap }}
         scale={capScale}
+        fill={TRAY.fill}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.inner, { left: bezel, top: bezel, width: innerW, height: innerH, borderRadius: rr }]}>
+      <View style={[styles.inner, { left: bezel, top: bezel, width: innerW, height: innerH }]}>
         <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
-          {/* recessed well */}
-          <RoundedRect x={0} y={0} width={innerW} height={innerH} r={rr}>
-            <SkGradient start={vec(0, 0)} end={vec(0, innerH)} colors={["#16252F", "#0D171E"]} />
-          </RoundedRect>
-          {/* subtle 2 px grid, rounded 6 px tile corners */}
-          {grid ? <Path path={grid} style="stroke" strokeWidth={2} color="rgba(42,58,69,0.75)" /> : null}
-          {grid ? <Path path={grid} color="rgba(255,255,255,0.018)" /> : null}
-          {/* blocked cells: matte steel plate with an embossed X */}
+          {/* an engraved socket under every cell; blocked cells sink darker and stay empty */}
           {def.cells.map((cell, i) => {
-            if (cell.t !== "empty" || !inView(i)) return null;
+            if (!inView(i)) return null;
             const { x, y } = cellXY(i);
-            const p = T * 0.14;
-            return <SkImage key={`b${i}`} image={sp.blocker} x={x + p} y={y + p} width={T - p * 2} height={T - p * 2} fit="contain" opacity={0.65} />;
+            const p = Math.max(1, Math.round(T * 0.015));
+            return cell.t === "empty" ? (
+              <SkImage key={`s${i}`} image={sp.slotSunk} x={x + p} y={y + p} width={T - p * 2} height={T - p * 2} fit="fill" />
+            ) : (
+              <SkImage key={`s${i}`} image={sp.slot} x={x + p} y={y + p} width={T - p * 2} height={T - p * 2} fit="fill" />
+            );
           })}
-          {/* level-1 guide: faint dotted route, glowing ring on the next pipe */}
+          {/* level-1 guide: faint dotted route */}
           {guide && guide.route.length > 1 ? (
             <Path
               path={P(guide.route.map((i, k) => { const { x, y } = cellXY(i); return `${k ? "L" : "M"}${x + T / 2} ${y + T / 2}`; }).join(""))}
-              style="stroke" strokeWidth={Math.max(3, T * 0.05)} strokeCap="round" strokeJoin="round" color="rgba(46,196,255,0.55)"
+              style="stroke" strokeWidth={Math.max(3, T * 0.05)} strokeCap="round" strokeJoin="round" color="rgba(18,209,230,0.6)"
             >
               <DashPathEffect intervals={[T * 0.04, T * 0.11]} />
             </Path>
@@ -882,29 +982,41 @@ export function PipeBoard({
             const { x, y, row, col } = cellXY(i);
             return (
               <Group key={`t${i}`} transform={[{ translateX: x }, { translateY: y }]}>
-                <Tile cell={cell} rot={rot[i]} fluid={fluids[i]} T={T} anim={anims[i]} sp={sp} winPulse={winPulse} winDelay={200 + (row + col) * 65} />
+                <Tile cell={cell} rot={rot[i]} fluid={fluids[i]} T={T} anim={anims[i]} sp={sp} winPulse={winPulse} winDelay={200 + (row + col) * 65} beckon={i === beckon ? beckonS : undefined} />
               </Group>
             );
           })}
-          {/* tap glow rings + blocked X (square to the grid) */}
+          {/* gear drive belts + gears (square to the grid, spinning with their group) */}
+          {belts.map((b) => (
+            <Group key={`belt${b.k}`}>
+              <Path path={b.path} style="stroke" strokeWidth={T * 0.08} strokeCap="round" strokeJoin="round" color="rgba(0,0,0,0.55)" />
+              <Path path={b.path} style="stroke" strokeWidth={T * 0.05} strokeCap="round" strokeJoin="round" color={GEAR_TINT[b.k % 3]}>
+                <DashPathEffect intervals={[T * 0.05, T * 0.035]} />
+              </Path>
+            </Group>
+          ))}
+          {def.cells.map((cell, i) => {
+            if (cell.k === undefined || !inView(i)) return null;
+            const { x, y } = cellXY(i);
+            return <GearBadge key={`g${i}`} x={x} y={y} T={T} anim={anims[i]} group={cell.k} sp={sp} />;
+          })}
+          {/* tap rim rings + bolted X (square to the grid) */}
           {def.cells.map((cell, i) => {
             if (cell.t === "empty" || !inView(i)) return null;
             const { x, y } = cellXY(i);
             return <TileOverlay key={`o${i}`} x={x} y={y} T={T} anim={anims[i]} />;
           })}
-          {/* joint sparks / steam */}
-          {bursts.map((b) => <JointBurst key={b.id} x={b.x} y={b.y} color={b.color} T={T} seed={b.id * 0.7} />)}
+          {/* joint sparkles / steam */}
+          {bursts.map((b) => <JointBurst key={b.id} x={b.x} y={b.y} color={b.color} T={T} seed={b.id * 0.7} sp={sp} />)}
+          {puffs.map((p) => <TurnPuff key={p.id} ends={p.ends} color={p.color} T={T} seed={p.id} />)}
           {/* win glow sweep */}
           <Group transform={sweepT} opacity={sweepOp} blendMode="plus">
-            <SkImage image={sp.sweep} x={0} y={-innerH * 0.1} width={sweepW} height={innerH * 1.2} fit="fill" />
+            <SkImage image={sp.glow} x={0} y={-innerH * 0.05} width={sweepW} height={innerH * 1.1} fit="fill" />
           </Group>
           {/* soft inner shadow pushes the grid into the tray (stacked strokes, no blur pass) */}
-          {[[3, 0.42], [7, 0.24], [12, 0.12]].map(([w, a]) => (
-            <RoundedRect key={w} x={0} y={0} width={innerW} height={innerH} r={rr} style="stroke" strokeWidth={w * 2} color={`rgba(0,0,0,${a})`} />
+          {[[2, 0.35], [6, 0.18]].map(([w, a]) => (
+            <RoundedRect key={w} x={0} y={0} width={innerW} height={innerH} r={Math.max(6, T * 0.1)} style="stroke" strokeWidth={w * 2} color={`rgba(0,0,0,${a})`} />
           ))}
-          <RoundedRect x={0} y={0} width={innerW} height={innerH} r={rr}>
-            <RadialGradient c={vec(innerW / 2, innerH * 0.45)} r={Math.max(innerW, innerH) * 0.7} colors={["rgba(46,196,255,0.05)", "rgba(0,0,0,0)", "rgba(0,0,0,0.3)"]} positions={[0, 0.6, 1]} />
-          </RoundedRect>
         </Canvas>
         {/* Ambient layer: everything that moves forever (bubbles, shimmer, source rings, drain breathing, hint and
             guide rings) lives on its own light canvas, so the board above only redraws when the game changes. */}
@@ -922,8 +1034,8 @@ export function PipeBoard({
             const { x, y } = cellXY(hintIndex);
             return (
               <Group opacity={hintOp}>
-                <RoundedRect x={x + 2} y={y + 2} width={T - 4} height={T - 4} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color="rgba(217,122,43,0.35)" />
-                <RoundedRect x={x + 4} y={y + 4} width={T - 8} height={T - 8} r={T * 0.15} style="stroke" strokeWidth={T * 0.05} color={palette.primary} />
+                <RoundedRect x={x + 2} y={y + 2} width={T - 4} height={T - 4} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color="rgba(255,178,77,0.35)" />
+                <RoundedRect x={x + 4} y={y + 4} width={T - 8} height={T - 8} r={T * 0.15} style="stroke" strokeWidth={T * 0.05} color={palette.secondary} />
               </Group>
             );
           })() : null}
@@ -931,15 +1043,15 @@ export function PipeBoard({
             const { x, y } = cellXY(guide.next);
             return (
               <Group opacity={hintOp}>
-                <RoundedRect x={x + 3} y={y + 3} width={T - 6} height={T - 6} r={T * 0.16} color="rgba(46,196,255,0.14)" />
-                <RoundedRect x={x + 2} y={y + 2} width={T - 4} height={T - 4} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color="rgba(46,196,255,0.3)" />
-                <RoundedRect x={x + 4} y={y + 4} width={T - 8} height={T - 8} r={T * 0.15} style="stroke" strokeWidth={T * 0.05} color={palette.accent} />
+                <RoundedRect x={x + 3} y={y + 3} width={T - 6} height={T - 6} r={T * 0.16} color="rgba(18,209,230,0.12)" />
+                <RoundedRect x={x + 2} y={y + 2} width={T - 4} height={T - 4} r={T * 0.16} style="stroke" strokeWidth={T * 0.1} color="rgba(18,209,230,0.3)" />
+                <RoundedRect x={x + 4} y={y + 4} width={T - 8} height={T - 8} r={T * 0.15} style="stroke" strokeWidth={T * 0.05} color={palette.glow} />
               </Group>
             );
           })() : null}
           {guide?.drainPulse && guide.route.length ? (() => {
             const { x, y } = cellXY(guide.route[guide.route.length - 1]);
-            return <Circle cx={x + T / 2} cy={y + T / 2} r={drainRingR} style="stroke" strokeWidth={Math.max(3, T * 0.05)} color={palette.accent} opacity={drainRingOp} />;
+            return <Circle cx={x + T / 2} cy={y + T / 2} r={drainRingR} style="stroke" strokeWidth={Math.max(3, T * 0.05)} color={palette.glow} opacity={drainRingOp} />;
           })() : null}
         </Canvas>
         {/* transparent hit targets — rotate on press-in so the spin starts within a frame */}
@@ -953,16 +1065,20 @@ export function PipeBoard({
                 return (
                   <Pressable
                     key={i}
-                    onPressIn={can ? () => spin(i) : cell.t !== "empty" && interactive ? () => deny(i) : undefined}
+                    onPressIn={can
+                      ? (e) => spin(i, well + cc * T + e.nativeEvent.locationX, well + r * T + e.nativeEvent.locationY)
+                      : cell.t !== "empty" && interactive ? () => deny(i) : undefined}
                     disabled={!interactive || cell.t === "empty"}
                     hitSlop={2}
                     style={{ width: T, height: T }}
+                    accessibilityLabel={can ? `Pipe row ${r + 1} column ${cc + 1}` : undefined}
                   />
                 );
               })}
             </View>
           ))}
         </View>
+        {ripples.map((r) => <TapRipple key={r.id} x={r.x} y={r.y} size={Math.round(T * 0.9)} />)}
         {toast ? (() => {
           const { x, y } = cellXY(toast.i);
           const above = y > T * 0.5;
@@ -974,7 +1090,7 @@ export function PipeBoard({
               exiting={FadeOut.duration(300)}
               style={[styles.toast, { left: Math.max(4, Math.min(innerW - 112, x + T / 2 - 54)), top: above ? y - 20 : y + T - 16 }]}
             >
-              <Text style={styles.toastText}>Blocked</Text>
+              <Text style={styles.toastText}>{def.cells[toast.i].t === "pipe" || def.cells[toast.i].t === "gate" ? "Bolted" : "Fixed"}</Text>
             </Animated.View>
           );
         })() : null}
@@ -986,9 +1102,9 @@ export function PipeBoard({
 const styles = StyleSheet.create({
   frame: {
     alignSelf: "center",
-    shadowColor: "#000", shadowOpacity: 0.6, shadowRadius: 22, shadowOffset: { width: 0, height: 14 }, elevation: 16,
+    shadowColor: "#000", shadowOpacity: 0.65, shadowRadius: 24, shadowOffset: { width: 0, height: 16 }, elevation: 16,
   },
-  inner: { position: "absolute", overflow: "hidden", backgroundColor: "#0D171E" },
+  inner: { position: "absolute", overflow: "hidden" },
   row: { position: "absolute", flexDirection: "row" },
   toast: {
     position: "absolute", width: 108, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center",

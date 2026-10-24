@@ -1,29 +1,11 @@
 {
   "_note": "Store screenshot scenes. Each id is opened with <scheme>://shot/<id> and captured on an emulator. Implemented in src/screenshots.tsx as REAL Flow Forge states.",
   "scenes": [
-    {
-      "id": "home",
-      "caption": "Relaxing pipe puzzles, beautifully crafted"
-    },
-    {
-      "id": "solve",
-      "caption": "Rotate pipes, start the flow"
-    },
-    {
-      "id": "two",
-      "caption": "Route every fluid home"
-    },
-    {
-      "id": "hard",
-      "caption": "Master tricky three-fluid puzzles"
-    },
-    {
-      "id": "win",
-      "caption": "Earn three shining stars"
-    },
-    {
-      "id": "map",
-      "caption": "Dozens of handcrafted levels"
-    }
+    { "id": "home", "caption": "Cozy pipe puzzles, beautifully forged" },
+    { "id": "solve", "caption": "Turn pipes, start the flow" },
+    { "id": "filters", "caption": "Filters sort every fluid" },
+    { "id": "gears", "caption": "Geared pipes turn together" },
+    { "id": "win", "caption": "Earn three shining stars" },
+    { "id": "map", "caption": "60 levels, ten workshops" }
   ]
 }

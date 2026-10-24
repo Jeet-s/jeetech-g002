@@ -1,29 +1,16 @@
 // Extends app.json with the monetization plugins. The AdMob app id comes from
 // monetization.json (written per game by the factory from its Play slot).
 const monetization = require("./monetization.json");
-const monetizationIos = require("./monetization.ios.json");
 
 module.exports = ({ config }) => ({
   ...config,
-  // iOS (App Store): iPhone only, portrait. No NSUserTrackingUsageDescription —
-  // the app never shows the App Tracking Transparency prompt or reads the IDFA.
-  ios: {
-    ...config.ios,
-    supportsTablet: false,
-    infoPlist: {
-      ...config.ios?.infoPlist,
-      ITSAppUsesNonExemptEncryption: false,
-      UIRequiresFullScreen: true,
-    },
-  },
   plugins: [
     [
       "react-native-google-mobile-ads",
       {
         androidAppId: monetization.admob.appId,
-        iosAppId: monetizationIos.admob.appId,
-        // Google's own SKAdNetwork id (install attribution without the IDFA).
-        skAdNetworkItems: ["cstr6suwn9.skadnetwork"],
+        // The factory's iOS build swaps the iOS AdMob app's ids into monetization.json (lib/appstore/build-ios.ts).
+        iosAppId: monetization.admob.appId,
         // Consent (UMP) is gathered before the SDK starts serving.
         delayAppMeasurementInit: true,
       },

@@ -36,6 +36,9 @@ async function id(): Promise<string> {
   return installId;
 }
 
+/** The anonymous install id (also used to address this install's push notifications). */
+export const getInstallId = id;
+
 async function flush(): Promise<void> {
   timer = null;
   const batch = queue;

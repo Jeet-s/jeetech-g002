@@ -10,7 +10,7 @@
  *   BOTS=0 npx tsx scripts/level-lab.ts     # solver facts only
  */
 import { LEVELS } from "../src/game/levels";
-import { GState, LevelDef, applyMove, legalMoves, progressOf, startState, statusOf } from "../src/game/engine";
+import { GState, LevelDef, applyMove, isWon, legalMoves, progressOf, startState, statusOf, turn } from "../src/game/engine";
 import { sim } from "../src/game/sim";
 import type { Sim } from "../src/game/sim";
 import { winRate } from "./bots";
@@ -60,6 +60,29 @@ export function trapRate(def: LevelDef): number | null {
   return known ? Number((dead / known).toFixed(2)) : null;
 }
 
+/**
+ * Every winning board reachable from the start (exhaustive over the tap targets' orientations):
+ * how many there are and the fewest taps to any of them. A good puzzle has few solutions.
+ */
+export function solutions(def: LevelDef, limit = 3_000_000): { wins: number; fewest: number; space: number } | null {
+  const orient = def.taps.map((i) => (def.groups[def.cells[i].k ?? -1] ?? [i]).reduce((a, j) => Math.max(a, def.cells[j].o), 1));
+  const space = orient.reduce((a, o) => a * o, 1);
+  if (space > limit) return null;
+  let wins = 0, fewest = Infinity;
+  const start = def.cells.map((c) => c.r);
+  for (let code = 0; code < space; code++) {
+    let q = code, rot = start, taps = 0;
+    for (let t = 0; t < def.taps.length; t++) {
+      const k = q % orient[t];
+      q = Math.floor(q / orient[t]);
+      for (let n = 0; n < k; n++) rot = turn(def, rot, def.taps[t]);
+      taps += k;
+    }
+    if (isWon(def, rot)) { wins++; fewest = Math.min(fewest, taps); }
+  }
+  return { wins, fewest, space };
+}
+
 const ENGINE: Sim<GState, number> = {
   levelCount: 0,
   start: () => { throw new Error("unused"); },
@@ -75,10 +98,11 @@ if (require.main === module) {
   for (const def of LEVELS) {
     if (pick.length && !pick.includes(def.number)) continue;
     const sp = shortest(startState(def));
-    const space = def.rotatable.reduce((a, i) => a * def.cells[i].o, 1);
+    const sol = solutions(def);
+    const space = sol ? `${sol.space} wins ${sol.wins} fewest ${sol.fewest}` : "big";
     const fixed = def.cells.filter((c) => c.t === "pipe" && c.f).length;
     const crosses = def.cells.filter((c) => c.x).length;
-    let line = `L${def.number} ${def.w}x${def.h} ${def.colors.length}c rot ${def.rotatable.length} fixed ${fixed} +${crosses} ` +
+    let line = `L${def.number} ${def.w}x${def.h} ${def.colors.length}c taps ${def.taps.length} rot ${def.rotatable.length} fixed ${fixed} +${crosses} ` +
       `par ${def.par} opt ${sp.optimal ?? `>cap`} exp ${sp.explored} space ${space} trap ${trapRate(def)} budget ${def.budget}`;
     if (bots) line += ` | casual ${rate(def, "casual").toFixed(2)} skilled ${rate(def, "skilled").toFixed(2)} careless ${rate(def, "careless").toFixed(2)}`;
     console.log(line);

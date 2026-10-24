@@ -6,24 +6,29 @@ import {
   Background, BoosterSlot, Confetti, FailPopup, FloatingText, GameButton, HudBar, Icon, PausePopup, SteelPlate, TutorialHand, WinPopup, feedback, fonts, motion, palette, type, useShake,
 } from "../ui";
 import { LEVELS, movesAllowed, starsFor } from "../game/levels";
-import { flow, isWon, tapsBetween } from "../game/engine";
+import { flow, nextTap, tapsBetween, tapsToSolve, turn, turnsWith } from "../game/engine";
 import { PipeBoard, boardChrome, boardView } from "../game/PipeBoard";
 import { goalFor, routeOf } from "../game/board";
-import { DESIGNS } from "../game/designs";
+import { CHAPTERS, DESIGNS } from "../game/designs";
 import { owned } from "../game/boosters";
 import { store } from "../modules/store";
 import { ads } from "../modules/ads";
 import { analytics } from "../modules/analytics";
 import { useBannerHeight } from "../modules/layout";
 import { qa, reportNext } from "../modules/qa";
+import { notify } from "../modules/notify";
+import { completeDaily, dailyReward, liveStreak } from "../game/meta";
+import type { LevelDef } from "../game/engine";
 
 /** One Flow Forge level: rotate pipes to route every fluid to its drain. */
-export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo }: {
+export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo, daily }: {
   levelNumber: number; onExit: () => void; onSettings: () => void; onNextLevel: (n: number) => void;
   /** Screenshot mode: show a fixed rotation state, optionally with the win popup. */
   demo?: { rot?: number[]; win?: boolean; moves?: number };
+  /** Daily Pipework (src/game/meta.ts): today's remixed board. Pays the streak reward, leaves the campaign alone. */
+  daily?: LevelDef;
 }) {
-  const level = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, levelNumber - 1))];
+  const level = daily ?? LEVELS[Math.max(0, Math.min(LEVELS.length - 1, levelNumber - 1))];
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const bannerH = useBannerHeight();
@@ -37,6 +42,8 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   const [moves, setMoves] = useState(0);
   const [result, setResult] = useState<"win" | "fail" | null>(null);
   const [hintIdx, setHintIdx] = useState<number | null>(null);
+  /** What the last Hint said; shown on the coach card for as long as its ring is up (cleared with hintIdx). */
+  const [hintNote, setHintNote] = useState("");
   const [floater, setFloater] = useState(0);
   const [winPulse, setWinPulse] = useState(0);
   const [area, setArea] = useState({ y: 0, h: 0 });
@@ -50,6 +57,17 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   const [boost, setBoost] = useState<{ text: string; k: number; color?: string } | null>(null);
   const say = (text: string, color?: string) => setBoost((b) => ({ text, k: (b?.k ?? 0) + 1, color }));
   const [failing, setFailing] = useState(false);
+  const [dailyWin, setDailyWin] = useState<{ streak: number; coins: number; wrench: boolean } | null>(null);
+  const todayKey = daily ? daily.id.slice(1) : "";
+  // The player opted in from the daily win summary: ask for permission, then a gentle daily reminder.
+  async function turnOnReminders() {
+    const ok = await notify.ask("A daily nudge when a fresh Daily Pipework board is ready");
+    store.set({ reminders: ok });
+    if (ok) {
+      say("Daily reminder on", palette.primary);
+      notify.daily("daily-pipework", { hour: 18, minute: 0 }, { title: "Today's Daily Pipework is ready", body: "A fresh remixed board is waiting. Keep your streak flowing!" });
+    } else say("Reminders are off in system settings", palette.inkSoft);
+  }
   const { style: shakeStyle, shake } = useShake(12);
   // Fail beat: the playfield dims and an "Out of moves" banner slams in before the popup.
   const failDim = useSharedValue(0);
@@ -63,10 +81,18 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.value }));
   // Board drop-in (220 ms ease) each time a level opens.
   const drop = useSharedValue(0);
+  // Win beat: the board zooms in (200 ms) while the workshop behind it drifts the other way (parallax), then eases back.
+  const zoom = useSharedValue(0);
   const dropStyle = useAnimatedStyle(() => ({
     opacity: drop.value,
-    transform: [{ translateY: (1 - drop.value) * -28 }, { scale: 0.96 + drop.value * 0.04 }],
+    transform: [{ translateY: (1 - drop.value) * -28 - zoom.value * 6 }, { scale: (0.96 + drop.value * 0.04) * (1 + zoom.value * 0.06) }],
   }));
+  const bgStyle = useAnimatedStyle(() => ({ transform: [{ translateY: zoom.value * 14 }, { scale: 1.04 - zoom.value * 0.02 }] }));
+  // The coach / "Connected!" card slides up and fades 0.8 s into the win, leaving the stage to the board.
+  const topOut = useSharedValue(0);
+  const topStyle = useAnimatedStyle(() => ({ opacity: 1 - topOut.value, transform: [{ translateY: -18 * topOut.value }] }));
+  const [wave2, setWave2] = useState(0);
+  const [wave3, setWave3] = useState(0);
 
   // Track deferred callbacks so they're cancelled if the screen unmounts mid
   // animation (e.g. the player leaves a level before the win/fail delay fires) —
@@ -99,10 +125,10 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
   // QA level replay: after the board settles and after every accepted move, report the window-pixel centre of
   // the next pipe the solver turns toward the stored solution (measured on the real on-screen board).
   const boardRef = useRef<React.ComponentRef<typeof View>>(null);
-  const qaMode = qa.level === level.number && !demo;
+  const qaMode = qa.level === level.number && !demo && !daily;
   function qaReport(r: number[]) {
     if (!qaMode) return;
-    const next = isWon(level, r) ? undefined : level.rotatable.find((i) => tapsBetween(level.cells[i].m, r[i], level.solution[i]) > 0);
+    const next = nextTap(level, r); // the engine solver's next tap (a loose pipe or a gear group's first pipe)
     if (next == null) { reportNext(level.number, null); return; }
     // Measure after this move's re-render has laid out (the coach text above the board can change height).
     later(() => boardRef.current?.measureInWindow((x, y) => {
@@ -125,8 +151,9 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     const start = level.cells.map((c) => c.r);
     rotRef.current = start;
     setRot(start); setHistory([]); setMoves(0); setResult(null); setHintIdx(null); setWinPulse(0); setBonus(0); setPaused(false);
-    failDim.value = 0; failBanner.value = 0;
-    analytics.track("level_start", { level: level.number });
+    failDim.value = 0; failBanner.value = 0; zoom.value = 0; topOut.value = 0;
+    if (daily) analytics.track("daily_start", { level: level.number });
+    else analytics.track("level_start", { level: level.number });
     drop.value = 0;
     drop.value = withTiming(1, { duration: motion.boardDrop, easing: Easing.out(Easing.cubic) });
     if (demo?.rot) {
@@ -138,11 +165,27 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [level, demo]);
 
+  /** Results land ~650 ms after the winning tap: zoom + sweep + three escalating confetti waves fill that gap. */
+  const WIN_HOLD = 650;
   function finishWin(usedMoves: number) {
     setWinPulse((w) => w + 1);
     setFloater((f) => f + 1);
-    flash.value = withSequence(withDelay(220, withTiming(0.4, { duration: 90 })), withTiming(0, { duration: 460 }));
+    zoom.value = withSequence(withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) }), withDelay(260, withTiming(0.35, { duration: 380, easing: Easing.inOut(Easing.quad) })));
+    flash.value = withSequence(withDelay(160, withTiming(0.4, { duration: 80 })), withTiming(0, { duration: 380 }));
+    topOut.value = withDelay(800, withTiming(1, { duration: 220, easing: Easing.in(Easing.quad) }));
+    later(() => setWave2((w) => w + 1), 220);
+    later(() => setWave3((w) => w + 1), 440);
     feedback("success", "success");
+    if (daily) {
+      later(() => {
+        const done = completeDaily(store.get());
+        if (done) store.set(done.patch);
+        setDailyWin(done ? { streak: done.streak, coins: done.reward.coins, wrench: done.reward.wrench } : { streak: liveStreak(store.get()), coins: 0, wrench: false });
+        setResult("win");
+        analytics.track("daily_complete", { level: level.number, moves: usedMoves });
+      }, WIN_HOLD);
+      return;
+    }
     const first = level.number === 1 && !store.get().tutorialDone;
     // Earnable hints: +1 free hint for every 5 levels solved (first clear only).
     if (level.number % 5 === 0 && store.get().level <= level.number && !demo) {
@@ -159,15 +202,13 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
       });
       analytics.track("level_complete", { level: level.number, moves: usedMoves });
       if (first) { store.set({ tutorialDone: true }); analytics.track("tutorial_done", { level: 1 }); }
-    }, 1150);
+    }, WIN_HOLD);
   }
 
   function tap(i: number) {
     if (result || failing || paused || level.cells[i].f) return;
     const prev = rotRef.current;
-    const next = prev.slice();
-    next[i] = (next[i] + 1) % 4;
-    apply(prev, next, moves + 1);
+    apply(prev, turn(level, prev, i), moves + 1); // the engine's turn: the pipe and every pipe geared to it
   }
 
   /** Commit a new board (a turn, or a Wrench fix that spends no move), then check win / out of moves. */
@@ -203,7 +244,8 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     failBanner.value = withDelay(120, withTiming(1, { duration: 260, easing: Easing.out(Easing.back(1.8)) }));
     const seq = ++failSeq.current;
     later(() => { if (failSeq.current === seq) setResult("fail"); }, 1050);
-    analytics.track("level_fail", { level: level.number });
+    if (daily) analytics.track("daily_fail", { level: level.number });
+    else analytics.track("level_fail", { level: level.number });
   }
 
   // Bumped by clearFail so a pending "fail" popup never lands after +5 Moves / restart rescued the level.
@@ -233,15 +275,16 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     const start = level.cells.map((c) => c.r);
     rotRef.current = start;
     setRot(start); setHistory([]); setMoves(0); setResult(null); setHintIdx(null); setBonus(0); setPaused(false);
+    zoom.value = withTiming(0, { duration: 200 }); topOut.value = withTiming(0, { duration: 200 });
     clearFail();
     qaReport(start);
   }
 
-  // Hint = the mis-rotated pipe that is furthest from lining up (most useful to fix).
+  // Hint = the tap target (a loose pipe, or a whole gear group) furthest from lining up (most useful to fix).
   const wrongTile = useMemo(() => {
     let best = -1, bestTaps = 0;
-    for (const i of level.rotatable) {
-      const t = tapsBetween(level.cells[i].m, rot[i], level.solution[i]);
+    for (const i of level.taps) {
+      const t = tapsToSolve(level, rot, i);
       if (t > bestTaps) { bestTaps = t; best = i; }
     }
     return best;
@@ -256,7 +299,11 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
 
   function hint() {
     if (wrongTile < 0 || result || failing) return;
-    spend("hints", () => { setHintIdx(wrongTile); feedback("pop", "medium"); say("Turn the ringed pipe"); });
+    const taps = tapsToSolve(level, rotRef.current, wrongTile);
+    spend("hints", () => {
+      const note = `Turn the ringed pipe ${taps === 1 ? "once" : `${taps} times`}`;
+      setHintIdx(wrongTile); setHintNote(note); feedback("pop", "medium"); say(note);
+    });
     analytics.track("hint_view", { level: level.number });
   }
 
@@ -267,9 +314,10 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
     spend("wrenches", () => {
       const prev = rotRef.current;
       const next = prev.slice();
-      next[i] = level.solution[i];
+      const group = turnsWith(level, i);
+      for (const j of group) next[j] = level.solution[j];
       feedback("success", "medium");
-      say("Wrench! Pipe fixed", palette.coin);
+      say(group.length > 1 ? "Wrench! Gear group fixed" : "Wrench! Pipe fixed", palette.coin);
       apply(prev, next, moves);
     });
     analytics.track("booster_use", { level: level.number, booster: "wrench" });
@@ -281,20 +329,25 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
       setBonus((b) => b + 5);
       if (failing) { setResult(null); clearFail(); }
       feedback("pop", "medium");
-      say("+5 moves!", palette.accent);
+      say("+5 moves!", palette.primary);
     });
     analytics.track("booster_use", { level: level.number, booster: "moves" });
   }
 
   // Level 1 is GUIDED: a dotted line shows where the water must go, the next
   // pipe on that route glows (and the hand taps it) until every pipe lines up.
-  const route = useMemo(() => (level.number === 1 ? routeOf(level) : []), [level]);
+  const route = useMemo(() => (level.number === 1 && !daily ? routeOf(level) : []), [level, daily]);
+  const design = daily ? undefined : DESIGNS[level.number - 1];
+  const chapterIdx = Math.max(0, CHAPTERS.indexOf(level.chapter));
+  const teach = design?.role === "teach" && !!design.hint;
+  // First level of a chapter = a new piece or rule on the board.
+  const newRule = !daily && level.number > 1 && LEVELS[level.number - 2].chapter !== level.chapter;
   const wrongOnRoute = (r: number[]) => route.filter((i) => !level.cells[i].f && tapsBetween(level.cells[i].m, r[i], level.solution[i]) > 0);
   const startWrong = useMemo(() => wrongOnRoute(level.cells.map((c) => c.r)).length, [level, route]); // eslint-disable-line react-hooks/exhaustive-deps
   const wrongNow = wrongOnRoute(rot);
   const guided = level.number === 1 && !demo && !result && !failing && route.length > 0;
   const guide = guided ? { route, next: wrongNow[0] ?? null, drainPulse: wrongNow.length < startWrong } : null;
-  const handTile = guide?.next ?? (level.number === 2 && moves === 0 && !result && !demo ? wrongTile : -1);
+  const handTile = guide?.next ?? (level.number === 2 && !daily && moves === 0 && !result && !demo ? wrongTile : -1);
   const tileCenter = (i: number) => ({
     x: boardLeft + edge + ((i % level.w) - view.c0) * tile + tile / 2,
     y: boardTop + edge + (Math.floor(i / level.w) - view.r0) * tile + tile / 2,
@@ -309,33 +362,63 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
 
   return (
     <View style={styles.root}>
-      <Background />
-      <View style={{ paddingTop: insets.top + 4 }}>
+      <Animated.View style={[StyleSheet.absoluteFill, bgStyle]}>
+        <Background chapter={chapterIdx} />
+      </Animated.View>
+      <View style={{ paddingTop: insets.top + 6 }}>
         <HudBar
-          moves={moves} budget={budget} par={level.par}
-          title={`Level ${level.number}`} chapter={level.chapter}
-          onBack={onExit} onPause={() => { feedback("tap", "light"); setPaused(true); }}
+          level={level.number} daily={!!daily} moves={moves} budget={budget} par={level.par} width={Math.min(width - 20, 460)}
+          onPause={() => { setPaused(true); }}
         />
       </View>
-      {guided ? (
+      <Animated.View style={topStyle}>
+      {hintIdx != null && hintNote && !result ? (
+        // An active Hint keeps its advice on screen until the player's next move.
         <SteelPlate style={styles.coach} radius={14} glow>
-          <View style={styles.coachIcon}><Icon name="bulb" size={22} color={palette.bgBottom} /></View>
+          <View style={[styles.coachIcon, { backgroundColor: palette.secondaryDark }]}><Icon name="bulb" size={22} color={palette.ink} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.coachKicker} numberOfLines={1}>HINT · {hints} LEFT</Text>
+            <Text style={styles.coachTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{hintNote}</Text>
+          </View>
+        </SteelPlate>
+      ) : guided ? (
+        <SteelPlate style={styles.coach} radius={14} glow>
+          <View style={styles.coachIcon}><Icon name="bulb" size={22} color={palette.ink} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.coachTitle} numberOfLines={1} adjustsFontSizeToFit>
               {wrongNow.length ? "Tap the glowing pipe to turn it" : "Connected!"}
             </Text>
-            <Text style={styles.coachSub} numberOfLines={2}>
+            {/* Count first and short, so a narrow phone never cuts it; shrinks rather than truncates. */}
+            <Text style={styles.coachSub} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.8}>
               {wrongNow.length
-                ? `Water flows by itself along the dotted line once the pipes line up. ${wrongNow.length} ${wrongNow.length === 1 ? "pipe" : "pipes"} to go.`
+                ? `${wrongNow.length} ${wrongNow.length === 1 ? "pipe" : "pipes"} to go. Line them up along the dotted path and the water flows.`
                 : "The water reached the drain."}
             </Text>
           </View>
         </SteelPlate>
+      ) : teach ? (
+        // Rule-teaching card: each chapter's teach levels explain the new piece before the player meets it.
+        <SteelPlate style={styles.coach} radius={14} glow>
+          <View style={[styles.coachIcon, { backgroundColor: palette.secondaryDark }]}><Icon name="bulb" size={22} color={palette.ink} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.coachKicker} numberOfLines={1}>{newRule ? `NEW · ${level.chapter}` : level.chapter}</Text>
+            <Text style={styles.coachSub} numberOfLines={4} adjustsFontSizeToFit minimumFontScale={0.8}>{design?.hint}</Text>
+          </View>
+        </SteelPlate>
+      ) : daily ? (
+        <View style={styles.goalRow}>
+          <Text style={styles.goalChapter} numberOfLines={1}>DAILY PIPEWORK · {level.chapter}</Text>
+          <Text style={styles.goal} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.8}>
+            A remixed network, scrambled fresh today. Clear it to {liveStreak(bank) > 0 && bank.dailyDay !== todayKey ? `keep your ${liveStreak(bank)}-day streak` : "start a streak"}.
+          </Text>
+        </View>
       ) : (
-        <Text style={styles.goal} numberOfLines={2}>
-          {DESIGNS[level.number - 1]?.hint ?? goalFor(level)}
-        </Text>
+        <View style={styles.goalRow}>
+          <Text style={styles.goalChapter} numberOfLines={1}>{level.chapter}</Text>
+          <Text style={styles.goal} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.8}>{design?.hint ?? goalFor(level)}</Text>
+        </View>
       )}
+      </Animated.View>
 
       <View style={styles.boardArea} onLayout={(e) => setArea({ y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height })}>
         {area.h > 0 ? (
@@ -351,6 +434,7 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
               winPulse={winPulse}
               interactive={!result && !failing && !paused && !demo}
               guide={guide}
+              beckon={handTile >= 0 && !result && !failing ? handTile : null}
             />
             </View>
             <Animated.View pointerEvents="none" style={[styles.flash, { borderRadius: edge }, flashStyle]} />
@@ -371,13 +455,16 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
       ) : null}
       {hintIdx != null && !result && area.h > 0 ? <TutorialHand key={`h${hintIdx}`} from={tileCenter(hintIdx)} /> : null}
       {floater ? (
-        <FloatingText key={floater} text="Flow complete!" color={palette.accent} x={width / 2} y={boardTop - 6} duration={1500} />
+        <FloatingText key={floater} text="Flow complete!" color={palette.primary} x={width / 2} y={boardTop - 6} duration={1000} />
       ) : null}
-      <Confetti trigger={winPulse} count={70} origin={{ x: width / 2, y: area.y + area.h / 2 }} />
+      {/* Escalating celebration: a centre burst, then denser waves from either side over 0.6 s. */}
+      <Confetti trigger={winPulse} count={60} origin={{ x: width / 2, y: area.y + area.h / 2 }} />
+      <Confetti trigger={wave2} count={80} origin={{ x: width * 0.25, y: area.y + area.h * 0.6 }} />
+      <Confetti trigger={wave3} count={100} origin={{ x: width * 0.75, y: area.y + area.h * 0.6 }} />
 
       <View style={[styles.actions, { paddingBottom: insets.bottom + bannerH + 12 }]}>
-        <GameButton style={{ flex: 0.8 }} size="md" variant="tertiary" icon="undo" onPress={undo} disabled={!history.length || failing} />
-        <GameButton style={{ flex: 0.8 }} size="md" variant="secondary" icon="restart" onPress={restart} />
+        <BoosterSlot style={{ flex: 0.8 }} icon="undo" label="Undo" onPress={undo} disabled={!history.length || failing} />
+        <BoosterSlot style={{ flex: 0.8 }} icon="restart" label="Restart" onPress={restart} />
         <View style={styles.tray}>
           <BoosterSlot style={{ flex: 1 }} icon="bulb" label="Hint" count={hints > 0 ? hints : "▶"} onPress={hint} disabled={wrongTile < 0 || !!result || failing} />
           <BoosterSlot style={{ flex: 1 }} icon="wrench-art" label="Wrench" count={owned(bank, "wrench") || "▶"} onPress={wrench} disabled={wrongTile < 0 || !!result || failing} />
@@ -385,15 +472,33 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
         </View>
       </View>
 
+      {daily ? (
+        <WinPopup
+          visible={result === "win"}
+          stars={stars}
+          coins={dailyWin?.coins ?? 0}
+          total={bank.coins}
+          title="Daily Cleared!"
+          subtitle={dailyWin ? `${dailyWin.streak}-day streak${dailyWin.wrench ? " · +1 Wrench" : ""} · tomorrow pays ${dailyReward(dailyWin.streak + 1).coins}` : undefined}
+          nextLabel="Home"
+          nextIcon="back"
+          onNext={() => { ads.showInterstitial(); onExit(); }}
+          extra={bank.reminders ? null : (
+            <GameButton size="sm" variant="secondary" icon="bulb" label="Remind me daily" onPress={turnOnReminders} />
+          )}
+        />
+      ) : (
       <WinPopup
         visible={result === "win"}
         stars={stars}
         coins={reward}
+        total={bank.coins}
         title={level.number >= LEVELS.length ? "Refinery Mastered!" : "Flow Complete!"}
         onNext={() => { ads.showInterstitial(); onNextLevel(Math.min(LEVELS.length, level.number + 1)); }}
         onReplay={restart}
         onMap={onExit}
       />
+      )}
       <FailPopup
         visible={result === "fail"}
         message="Out of moves! Reroute and try again."
@@ -417,7 +522,9 @@ export function GameScreen({ levelNumber, onExit, onSettings, onNextLevel, demo 
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  goal: { ...type.body, fontSize: 15, lineHeight: 20, color: palette.inkSoft, textAlign: "center", marginTop: 8, paddingHorizontal: 24 },
+  goalRow: { marginTop: 8, paddingHorizontal: 24, alignItems: "center" },
+  goalChapter: { fontFamily: fonts.displayMedium, fontSize: 15, letterSpacing: 0.4, color: palette.secondary, includeFontPadding: false },
+  goal: { ...type.body, fontSize: 15, lineHeight: 20, color: palette.inkSoft, textAlign: "center" },
   boardArea: { flex: 1, justifyContent: "center", alignItems: "center" },
   flash: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: "#FFFFFF" },
   failDim: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, backgroundColor: "#05090D" },
@@ -427,8 +534,9 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "#FFB0A8", shadowColor: palette.danger, shadowOpacity: 0.7, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, elevation: 18,
   },
   failText: { fontFamily: fonts.display, fontSize: 26, color: palette.ink, includeFontPadding: false, textShadowColor: "rgba(0,0,0,0.4)", textShadowRadius: 4 },
-  coach: { marginHorizontal: 12, marginTop: 8, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 12 },
-  coachIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.accent, alignItems: "center", justifyContent: "center" },
+  coach: { marginHorizontal: 12, marginTop: 8, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 12 },
+  coachIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.primaryDark, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: palette.brass },
+  coachKicker: { fontFamily: fonts.displayMedium, fontSize: 14, letterSpacing: 0.5, color: palette.secondary, includeFontPadding: false },
   coachTitle: { fontFamily: fonts.display, fontSize: 18, color: palette.ink, includeFontPadding: false },
   coachSub: { ...type.body, fontSize: 14, lineHeight: 18, color: palette.inkSoft },
   actions: { flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 10, paddingTop: 10 },

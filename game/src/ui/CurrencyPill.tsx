@@ -18,7 +18,7 @@ export function CurrencyPill({ icon, value }: { icon: string | IconName; value: 
 }
 
 const styles = StyleSheet.create({
-  pill: { flexDirection: "row", alignItems: "center", height: 44, paddingLeft: 6, paddingRight: 16 },
-  icon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", marginRight: 8, backgroundColor: "rgba(15,26,36,0.6)" },
+  pill: { flexDirection: "row", alignItems: "center", height: 48, paddingLeft: 10, paddingRight: 18 },
+  icon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", marginRight: 8, backgroundColor: "rgba(10,8,6,0.55)" },
   value: { ...type.number, fontSize: 19, letterSpacing: -0.19, color: palette.ink, minWidth: 28 },
 });

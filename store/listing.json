@@ -3,14 +3,14 @@
     "primary": "logic puzzles offline",
     "problems": [],
     "secondary": [
-      "pipe puzzle game",
       "water pipe puzzle",
-      "pipe puzzle",
+      "pipe puzzle game",
       "flow puzzle",
+      "pipe puzzle",
       "rotate tile puzzle"
     ]
   },
-  "title": "Flow Forge: Pipe Puzzle Game",
+  "title": "PipePath: Logic Puzzles",
   "category": "Puzzle",
   "keywords": [
     "logic puzzles offline",
@@ -21,19 +21,19 @@
     "rotate tile puzzle",
     "logic puzzles",
     "logic puzzle games",
-    "pipe puzzle games offline",
-    "pipe puzzle line connect"
+    "water pipe games offline",
+    "logic puzzles for adults"
   ],
-  "release_notes": "Initial release with 30 handcrafted levels across five chapters, rotate-to-connect pipe mechanics (including splitters, bolted and decoy pipes, cross-overpass, and multi-fluid routing), offline play, hints, undo, restart, star ratings, coins, and ad settings that start after level 10. Optional Remove Ads and coin packs included.",
+  "release_notes": "Initial release: 60 handcrafted levels across 10 chapters, daily puzzle and streaks, hints and undo, boosts, coins and star ratings. Optional rewarded ads and light IAPs (Remove Ads, Coins). Fully offline play with sound and haptics settings.",
   "content_rating": "Everyone",
-  "full_description": "Logic puzzles offline you can play anywhere, featuring precise pipe routing and tile rotation.\n\nBuild working paths by rotating straight and elbow pipes to guide fluids into matching drains. Every move is deliberate: some pipes are bolted, some are decoys, and splitters can feed several drains—use careful logic to earn stars and coins.\n\nWhat’s inside\n• 30 levels across 5 chapters: Workshop Basics (1–6), Factory Floor (7–12), Pressure Plant (13–18), Color Lab (19–24), Refinery Riddles (25–30)\n• Mechanics evolve as you progress: rotate pipes, handle drain mouths and several drains, avoid decoy pipes, manage bolted pipes, use splitter tees, route two fluids, navigate cross-overpass “+”, and master three fluids\n• Star rating per level based on your solution quality; replay anytime to improve\n• Helpful tools: hints, undo, and restart are available when you need them\n• Sound and haptics settings let you tune feedback to your preference\n• Plays fully offline; progress is stored on your device only\n\nFair monetization\n• No banner before level 5\n• First interstitial after level 10; then at most one every 4 levels\n• Rewarded ads only when you choose\n• Optional IAP: Remove Ads, Pile of Coins, Chest of Coins (no loot boxes)\n\nWhy you’ll enjoy it\n• Clean, readable grids focused on deduction and planning\n• Each chapter introduces a new twist so solutions stay fresh without complexity creep\n• Designed for touch: tap to rotate tiles with satisfying haptic feedback\n\nMade for puzzle fans\n• A modern pipe puzzle game built for thoughtful play\n• Classic flow puzzle logic with clear rules and single-goal layouts\n• Rotate tile puzzle fans will appreciate the focus on reasoning over speed\n\nIf you enjoy a pipe puzzle, water pipe puzzle layouts, or a flow puzzle that rewards planning, Flow Forge delivers compact challenges you can pick up anytime. Download now and start forging the perfect route.",
+  "full_description": "Logic puzzles offline you can truly take anywhere. In PipePath, rotate tiles to connect sources to every drain through a factory of clever pipe parts. With 60 handcrafted levels across 10 themed chapters, you’ll flex reasoning, spot patterns, and plan routes without needing a connection.\n\nWhat you’ll play\n• Rotate straight and elbow pipes to build clean paths\n• Feed every drain mouth while avoiding decoy pipes\n• Work around bolted tiles that can’t be turned\n• Split flow with tees to reach multiple drains\n• Guide two fluids, then three fluids as complexity ramps up\n• Cross lines using the + overpass without mixing\n• Purify streams through colour filters before they meet targets\n• Engage geared pipes that rotate together for brain-twisting moves\n• Fill the mixer vat to create purple for its special drain\n\nProgression built for mastery\n• 60 levels across 10 chapters:\n  - Workshop Basics (1–6)\n  - Factory Floor (7–12)\n  - Pressure Plant (13–18)\n  - Color Lab (19–24)\n  - Refinery Riddles (25–30)\n  - Filter Works (31–36)\n  - Gearworks (37–42)\n  - Blend Lab (43–48)\n  - Night Shift (49–54)\n  - Grand Refinery (55–60)\n• Difficulty choices let you pick easy, medium, or expert boards where offered\n• Earn stars per level and collect coins as you improve\n• Daily puzzle keeps your streak alive with a fresh challenge\n\nControls and game feel\n• Touch-first: tap to rotate, press-and-hold to preview, quick undo and restart at any time\n• Sound and haptics settings to tune your play vibe\n\nHelpful systems when you need them\n• Hints show a nudge without giving away the whole board\n• Boosts and power-ups like freeze help unlock tricky layouts\n• Optional rewarded ads only when you choose—for a hint or free currency\n\nPlay your way\n• Fully offline—no account, no login, and progress is stored on your device\n• Clean sessions in 1–5 minute levels, great for quick breaks or focused runs\n\nIf you enjoy a thoughtful water pipe puzzle, a classic pipe puzzle game, or a meditative flow puzzle that deepens over time, PipePath is for you. Start connecting, filtering, and mixing your way through the refinery today.",
   "screenshots_plan": [
-    "Rotate tiles to connect",
+    "Rotate to connect flows",
     "Two and three fluids",
-    "Splitters and several drains",
-    "Bolted and decoy pipes",
-    "Cross-overpass plus tiles",
-    "Earn stars and coins"
+    "Filters, tees, and overpass",
+    "Geared pipes twist together",
+    "Mix purple in the vat",
+    "60 handcrafted levels"
   ],
-  "short_description": "Rotate pipes and route every fluid home: 30 handcrafted offline logic puzzles."
+  "short_description": "Solve logic puzzles offline by rotating pipes, filters and mixers across 60"
 }

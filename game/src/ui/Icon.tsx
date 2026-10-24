@@ -1,6 +1,8 @@
 import { memo, useMemo } from "react";
 import { Canvas, Circle, Group, Path, Skia, LinearGradient, vec } from "@shopify/react-native-skia";
+import { Image } from "react-native";
 import { palette } from "./theme";
+import { art } from "../art";
 
 /**
  * Geometric line icons (24-unit grid, round caps) drawn with Skia — the art
@@ -113,6 +115,8 @@ export const Icon = memo(function Icon({ name, size = 24, color = palette.ink, s
     const p = svg(LINES[name as keyof typeof LINES]);
     return p ? <Path path={p} style="stroke" strokeWidth={stroke} strokeCap="round" strokeJoin="round" color={color} /> : null;
   }, [name, color, stroke]);
+  // The soft currency is the forge's gear token (reward_gear_token art), never a drawn disc.
+  if (name === "coin") return <Image source={art.reward_gear_token} style={{ width: size, height: size }} resizeMode="contain" fadeDuration={0} />;
   return (
     <Canvas style={{ width: size, height: size }} pointerEvents="none">
       <Group transform={[{ scale: k }]}>{body}</Group>

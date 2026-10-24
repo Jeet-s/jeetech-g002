@@ -1,37 +1,38 @@
-import { Image, StyleSheet, View, type ViewStyle } from "react-native";
+import { StyleSheet, View, type ViewStyle } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { lip as lipTone, palette, radius, shadow } from "./theme";
+import { radius, shadow } from "./theme";
+import { NineSlice } from "./Plate";
 import { art } from "../art";
 
+/** board_tray art (422x512): chamfered graphite rim, cyan accent line, warm graphite face. */
+const TRAY = { w: 422, h: 512, cap: { l: 62, t: 62, r: 62, b: 62 } };
+
 /**
- * Dark satin-steel sheet with a bevelled top highlight and a faint anodized
- * teal edge glow — for popups, menus and HUD groups. `dark` = deeper inset.
+ * Popup / menu card: the board's graphite tray (nine-sliced so the chamfered rim and cyan accent line keep
+ * their size) with a soft top-key highlight and a wide drop shadow. `dark` = a deeper face.
  */
 export function Panel({ children, style, dark }: { children: React.ReactNode; style?: ViewStyle; dark?: boolean }) {
   return (
     <View style={[styles.wrap, shadow, style]}>
       <View style={styles.glow} pointerEvents="none" />
-      <View style={[styles.lip, { backgroundColor: dark ? lipTone.dark : lipTone.light }]} />
-      <View style={styles.face}>
-        <View style={[StyleSheet.absoluteFill, styles.clip]} pointerEvents="none">
-          <Image source={art.hud_plate_steel} resizeMode="stretch" fadeDuration={0} style={[StyleSheet.absoluteFill, { opacity: dark ? 0.35 : 0.6 }]} />
-          <LinearGradient colors={dark ? ["rgba(17,27,35,0.85)", "rgba(11,18,24,0.95)"] : ["rgba(39,68,84,0.35)", "rgba(15,26,36,0.88)"]} style={StyleSheet.absoluteFill} />
-          <View style={styles.highlight} />
-        </View>
-        {children}
-      </View>
+      <NineSlice source={art.board_tray} w={TRAY.w} h={TRAY.h} cap={TRAY.cap} scale={0.5} fill={dark ? "#2A2622" : "#39332D"} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        pointerEvents="none"
+        colors={["rgba(255,236,210,0.07)", "rgba(255,236,210,0)", "rgba(0,0,0,0.12)"]}
+        locations={[0, 0.4, 1]}
+        style={[StyleSheet.absoluteFill, styles.sheen]}
+      />
+      <View style={styles.face}>{children}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { borderRadius: radius.xl },
-  glow: { position: "absolute", left: -1, right: -1, top: -1, bottom: -1, borderRadius: radius.xl + 1, shadowColor: palette.accent, shadowOpacity: 0.35, shadowRadius: 18, shadowOffset: { width: 0, height: 0 }, backgroundColor: "rgba(46,196,255,0.06)" },
-  lip: { position: "absolute", left: 0, right: 0, top: 6, bottom: -6, borderRadius: radius.xl },
-  face: {
-    borderRadius: radius.xl, padding: 22, backgroundColor: palette.surface,
-    borderWidth: 1.5, borderColor: palette.rim, borderTopColor: "rgba(46,196,255,0.38)",
+  glow: {
+    position: "absolute", left: 4, right: 4, top: 4, bottom: 4, borderRadius: radius.xl,
+    shadowColor: "#12D1E6", shadowOpacity: 0.3, shadowRadius: 22, shadowOffset: { width: 0, height: 0 }, backgroundColor: "rgba(18,209,230,0.04)",
   },
-  clip: { borderRadius: radius.xl - 1, overflow: "hidden" },
-  highlight: { position: "absolute", top: 0, left: 16, right: 16, height: 1.5, backgroundColor: "rgba(200,230,245,0.28)" },
+  sheen: { margin: 26, borderRadius: radius.lg },
+  face: { paddingHorizontal: 30, paddingVertical: 30 },
 });

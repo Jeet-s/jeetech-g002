@@ -3,7 +3,8 @@ import { Linking, Platform, Settings, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Animated, { FadeIn, FadeOut, ZoomInEasyDown } from "react-native-reanimated";
 import * as SplashScreen from "expo-splash-screen";
-import { useFonts, Nunito_400Regular, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold } from "@expo-google-fonts/nunito";
+import { useFonts, Fredoka_600SemiBold, Fredoka_700Bold } from "@expo-google-fonts/fredoka";
+import { Nunito_600SemiBold, Nunito_700Bold } from "@expo-google-fonts/nunito";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BannerAd, BannerAdSize } from "react-native-google-mobile-ads";
@@ -20,6 +21,9 @@ import { store } from "./modules/store";
 import { qa } from "./modules/qa";
 import { LEVELS } from "./game/levels";
 import { ScreenshotScene } from "./screenshots";
+import { notify } from "./modules/notify";
+import { dailyLevel } from "./game/meta";
+import type { LevelDef } from "./game/engine";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -35,7 +39,7 @@ function qaLevelOf(url: string | null | undefined): number | null {
  * this shell: providers, fonts, the banner slot and screenshot mode.
  */
 export default function App() {
-  const [fontsLoaded] = useFonts({ Nunito_400Regular, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold });
+  const [fontsLoaded] = useFonts({ Fredoka_600SemiBold, Fredoka_700Bold, Nunito_600SemiBold, Nunito_700Bold });
   // Screenshot mode (<scheme>://shot/<id>): render a store-screenshot scene
   // without ads or billing. undefined = still checking the launch URL.
   // iOS captures launch with `-AGFShot <id>` instead (a deep link would raise
@@ -75,7 +79,7 @@ function Game() {
   const [booted, setBooted] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
   // QA replay launches straight into its level (no tutorial gate, no ads).
-  const [screen, setScreen] = useState<{ name: "home" } | { name: "levels" } | { name: "game"; level: number }>(() =>
+  const [screen, setScreen] = useState<{ name: "home" } | { name: "levels" } | { name: "game"; level: number } | { name: "daily"; def: LevelDef }>(() =>
     qa.level != null ? { name: "game", level: qa.level } : { name: "home" },
   );
   const [qaRun, setQaRun] = useState(0);
@@ -90,6 +94,13 @@ function Game() {
       await store.load();
       analytics.track("app_open");
       setBooted(true);
+      if (qa.level == null) {
+        // Re-armed on every launch: fires only if the player stays away. The daily reminder only after they opted in.
+        notify.comeback({ days: 2, title: "Your streak is waiting", body: "A fresh Daily Pipework board and new levels are ready in the forge." });
+        if (store.get().reminders && (await notify.granted())) {
+          notify.daily("daily-pipework", { hour: 18, minute: 0 }, { title: "Today's Daily Pipework is ready", body: "A fresh remixed board is waiting. Keep your streak flowing!" });
+        }
+      }
       await initAudio();
       if (qa.level != null) return;
       await ads.init();
@@ -116,9 +127,9 @@ function Game() {
   return (
     <View style={styles.root}>
       <Animated.View
-        key={screen.name === "game" ? `game-${screen.level}-${qaRun}` : screen.name}
+        key={screen.name === "game" ? `game-${screen.level}-${qaRun}` : screen.name === "daily" ? `daily-${screen.def.id}` : screen.name}
         // Into a level: the board rises and grows into place; back to the map: a soft fade.
-        entering={screen.name === "game" ? ZoomInEasyDown.duration(340) : FadeIn.duration(280)}
+        entering={screen.name === "game" || screen.name === "daily" ? ZoomInEasyDown.duration(340) : FadeIn.duration(280)}
         exiting={FadeOut.duration(160)}
         style={styles.root}
       >
@@ -128,9 +139,19 @@ function Game() {
             onLevels={() => setScreen({ name: "levels" })}
             onShop={() => setShopOpen(true)}
             onSettings={() => setSettingsOpen(true)}
+            onDaily={() => setScreen({ name: "daily", def: dailyLevel(store.get().level) })}
           />
         ) : screen.name === "levels" ? (
           <LevelsScreen onPlay={(level) => setScreen({ name: "game", level })} onBack={() => setScreen({ name: "home" })} />
+        ) : screen.name === "daily" ? (
+          <GameScreen
+            key={screen.def.id}
+            levelNumber={screen.def.number}
+            daily={screen.def}
+            onExit={() => setScreen({ name: "home" })}
+            onSettings={() => setSettingsOpen(true)}
+            onNextLevel={(level) => setScreen({ name: "game", level })}
+          />
         ) : (
           <GameScreen
             key={screen.level}
@@ -153,6 +174,6 @@ function Game() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0F151C" },
+  root: { flex: 1, backgroundColor: "#0B1021" },
   banner: { position: "absolute", left: 0, right: 0, bottom: 0, alignItems: "center" },
 });

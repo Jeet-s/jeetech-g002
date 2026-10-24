@@ -28,8 +28,32 @@ is the quick designer's bench.
 | Two fluids | L13 | if colours touch, both drains spoil |
 | Cross-overpass `+` | L19 | two channels: fluids pass straight through without mixing |
 | Three fluids | L25 | |
+| Colour filters | L31 | a filter pipe passes only its own colour: fluids may share pipes, only drains must be pure; also walls (L32), splitters (L33), doors (L51) and one-way valves (L47) |
+| Geared pipes | L37 | linked pipes turn together; economy (L37), half turns (L38), the partner decides (L40), gear-locked routes (L41) |
+| Mixer vat (purple drain) | L43 | needs blue AND red together, nothing else; merge on purpose, cross-then-merge (L46), re-blend after sorting (L52) |
+
+Campaign: **60 levels in 10 chapters**. Levels 1-30 are the original campaign, kept exactly as they were (same
+boards, same numbering) so every player's reached level and stars stay valid; levels 31-60 are new chapters
+built on top. Each chapter introduces or twists one idea: teach → practise ×2 → twist → combine → finale, and
+the next chapter opens with a gentler level. Every new board is checked with `npx tsx scripts/design-try.ts <n>`
+(it enumerates EVERY winning board: new levels have exactly one answer) and budgets are tuned with
+`scripts/tune-levels.ts` (an exact, fast replica of the factory playtest).
 
 
+
+## Meta: why players come back (src/game/meta.ts, visible from the title screen)
+- **Daily Pipework**: one board a day. It takes a campaign network the player has already reached (L6 or
+  later, never a tutorial) and re-scrambles every route pipe from a date seed. Decoys keep their resting angle,
+  so each network's trick survives the remix. Every daily is solvable by construction: the stored solution is
+  the start board with each route pipe turned back 1-3 taps. Budget = taps + max(5, 60%), because a daily
+  rewards showing up, not grinding. Pays 40 + 10 x streak coins (capped at 7 days), and a Wrench every 7th day.
+- **Streak**: consecutive days with the daily cleared; it survives until a whole day is missed.
+- **Forge Tokens**: finishing a chapter's last level forges its token (collection 10/10 on Home). Each token is
+  claimed in Forge Progress for fixed coins + a booster.
+- **Star goals**: 12 / 30 / 50 / 75 / 100 / 125 / 150 / 180 stars, each with a fixed reward. This gives
+  3-starring old levels a purpose.
+- **Reminders**: the player turns on a 6 pm daily reminder (Settings, or the daily win summary), and only then
+  do we ask for notification permission. A comeback nudge is re-armed on every launch.
 ## Chapter 1 — Workshop Basics (L1–L6)
 One fluid. Learn to rotate, read the drain's mouth and ignore decoys.
 
@@ -79,4 +103,54 @@ Three fluids, combining overpasses, splitters and bolts.
 - **L28 · twist** (5x4, par 10) — the walled-in drain. Green's drain sits inside blue's hook, boxed in on every side. Aha: the only door is the overpass in blue's top wall — green drops straight through blue's lane into its drain, while red climbs the outside edge. *Why here:* twist: the overpass as the only door into an enclosed drain. `G│└r┌ / B━+└─ / ..g─┃ / .b│┐R`
 - **L29 · combine** (5x4, par 12) — everything: blue's splitter drops a branch down a column of TWO overpasses, so red and green each cross it once, while its other arm runs to the top-right drain. Aha: the tee must open RIGHT and DOWN; then red and green just run straight through their own '+' and turn down at the right edge. *Why here:* combine: splitter feeding a column of two overpasses crossed by both other colours. `B━┤│b / R━+│┌ / G━+┘─ / b│┐gr`
 - **L30 · finale** (5x4, par 11) — — the offset X. Blue zig-zags down the board through TWO overpasses: over red's column, then over green's. Aha: the corner pair between the two '+' is the hinge — blue turns down then right to line up with the second overpass, while red and green each fold home underneath. *Why here:* finale: the offset X — a planned double crossover through two different colours. `R└.┘G / B+┌┃. / r┌┘+┌ / .g│┐b`
+
+## Chapter 6 — Filter Works (L31–L36)
+Colour filters: a filter pipe only lets its own colour through, so fluids may finally SHARE pipes — only drains must stay pure.
+
+- **L31 · teach** (4x3, par 7) — colour filters. Both sources pour into the same two middle pipes — for 30 levels that meant spoiled drains — but each drain sits behind a filter of its own colour. Aha: fluids MAY share a pipe now; the blue filter lets only blue through to the blue drain, the red one only red. `B┐┌b / .├┤. / R┘└r`
+- **L32 · practise** (5x3, par 8) — filters as walls. The top and bottom rows look like free straight runs to each drain, but each is barred by a BOLTED filter of the OTHER colour. Aha: blue cannot pass a red filter — both fluids must dive into the shared middle bar, and the loose filters at the far end sort them back out. `B┬━┌b / .├━┤. / R┤━└r`
+- **L33 · practise** (5x3, par 8) — a filter SPLITTER. Blue and red meet in the bottom trunk; a blue-filter tee lifts only blue out of the mix and sends it to BOTH top drains, while red must leave the trunk earlier through its own filter on the left. Aha: the middle tee must open left, up and down, so red peels off through its filter before the blue filter shuts it out. `b━┬━b / r─┤.. / B─┴─R`
+- **L34 · twist** (5x3, par 8) — swap sides without an overpass. Blue starts top-left but its drain is bottom-right, red the reverse, and the only link between the rows is one shared drop. Aha: let both fluids fall down the same pipe — the filters at the bottom send each colour to the far side. Sharing replaces crossing. `B─┬─R / ..│.. / r─┴─b`
+- **L35 · combine** (5x3, par 10) — filters with an overpass and three fluids. Green falls straight down the middle while blue and red share a trunk that must cross it. Aha: the mixed trunk rides the overpass's left-right channel, so green never joins the mix — then the filters swap blue and red to the opposite corners. `B┐G┌r / .├+┤. / R┘g└b`
+- **L36 · finale** (5x4, par 11) — three fluids, ONE trunk. All three sources pour into the same bar and the three filters below hand each colour to its own drain — in a different order from the sources. Aha: stop keeping colours apart; connect everything into one trunk and let the filters do the sorting, then check each drop's tee faces down. `B.R.G / ├┬┴─┤ / ││..│ / gr..b`
+
+## Chapter 7 — Gearworks (L37–L42)
+Geared pipes: linked pipes turn together, so one tap can fix two corners — or knock a finished one out.
+
+- **L37 · teach** (4x2, par 5) — geared pipes. The two corners at either end of the dip are linked by gears and both need a half turn. Aha: one tap on either turns BOTH — two taps line up two corners at once. `B┐.b / .└─┘`
+- **L38 · practise** (4x3, par 5) — gears that join different shapes. The first straight already lines up, but it is geared to a corner that needs a half turn. Aha: turning the pair once knocks the straight out — turn it twice and the straight is back where it was while the corner flips round. `B─┐. / .┌┘. / .└─b`
+- **L39 · practise** (4x4, par 10) — gears across two fluids. Blue's lane runs round the outside and red's tucks inside it, and each gear pair links a blue pipe to a red one. Aha: read each pair as ONE piece — fixing blue's corner fixes red's at the same time, and the straight on blue's top row comes back after the half turn its red partner needs. `B──┐ / R┐.│ / .└┐│ / .r┘b`
+- **L40 · twist** (4x4, par 8) — the gear partner decides. Blue's tee can carry blue to its drain facing DOWN or facing UP, and down looks natural — but its geared partner then swings round into the spare arm of red's bolted tee and the colours mix. Aha: a half turn of the pair points the tee's spare arm harmlessly against the side of red's top lane and turns the partner away from red. `R──┐ / B┴b│ / .┐┳┘ / ..r.`
+- **L41 · combine** (5x4, par 11) — gears with the long way round. The top route is three-quarters built and only needs its two corners turned — but the left corner is geared to the top straight, and whenever that corner points up the straight stands on end. Aha: the gears forbid the short route, so take the long loop under the board; the top pieces are decoys that just turn along. `.┏─┐. / B┐.┌b / .│.│. / .└─┘.`
+- **L42 · finale** (5x4, par 11) — blue crosses red's loop on the overpass. Blue's first tee can face down or up; down looks right, but its geared partner then joins blue to the spare arm of red's bolted splitter. Aha: give the pair a half turn so the tee's spare arm rests against the side of red's top lane — and red's corner over the overpass needs a half turn too, which leaves its geared blue straight exactly where it was. `R──┐. / B┴─+┐ / .┐┳┘│ / ..r.b`
+
+## Chapter 8 — Blend Lab (L43–L48)
+Mixer vats: a purple vat needs blue AND red together. After seven chapters of keeping colours apart, mix them on purpose.
+
+- **L43 · teach** (3x3, par 5) — the mixer vat. For seven chapters touching colours spoiled everything; this purple vat is only satisfied when BOTH blue and red pour in. Aha: join the two lanes into one tee on purpose and send the blend into the vat. `B┐. / .├p / R┘.`
+- **L44 · practise** (5x3, par 8) — a vat and a pure drain on one pipe. Blue and red meet at the first tee and the blend runs right, where a second tee feeds the vat AND loops back along the bottom to the blue drain. Aha: the blue drain is fed by the same mixed pipe, but its blue filter strips the red out — so mix early and let the filter clean up. `.┌B.. / R┴─┬p / b──┘.`
+- **L45 · practise** (5x3, par 11) — one network, three outlets. Both sources sit on the bottom bar, so everything is mixed; the vat takes the blend straight from the left tee, while the red drain and the blue drain each hang behind a filter of their colour at opposite corners. Aha: every tee on the bar must open UP — one network can serve a vat and two pure drains at once. `.┌r.b / p┤.┌┘ / B┴─┴R`
+- **L46 · twist** (5x4, par 9) — an overpass never mixes. The vat needs blue and red, and their lanes meet head-on at the overpass — the obvious place to blend them, where nothing blends. Aha: let both cross straight through it, then join them at the tee beyond on the right; blue's own drain hangs below the first tee behind a blue filter, so the blend that floods back across the overpass can't spoil it. `..┌━R / B┬+─┐ / .│└━┤ / .b..p`
+- **L47 · combine** (5x3, par 6) — gears with the vat. Blue's top lane runs left to its drain and must also feed the vat at the end of red's bottom lane. Two uprights can bridge the lanes, and they are geared so only one stands at a time: the plain one on the left (standing at the start) or the blue filter on the right. Aha: through the plain bridge red climbs straight into blue's drain; through the filter blue pours down but red can never climb back — a filter is a one-way valve. Turn the pair so the filter stands. `b┳─┬B / .─.│. / p┻─┴R`
+- **L48 · finale** (5x4, par 12) — red sits under the vat but blue's source is on the far right, so blue must run back left through BOTH overpasses that green zig-zags across, meeting red at the tee under the vat; meanwhile red also flows right to its own drain and blue up to its own, each behind a filter. Aha: the overpasses keep green out of the mix both times — plan green's zig-zag first, then every tee simply opens toward the vat and the filters. `.pb┐. / G+┐├B / R┴+┴┐ / ..└gr`
+
+## Chapter 9 — Night Shift (L49–L54)
+Every tool at once, three at a time: filters as doors and one-way valves, re-blending, shared loops.
+
+- **L49 · breather** (3x4, par 7) — blend once, fill twice. Blue and red fall into one tee in the middle, and the blend must split again to TWO vats in the bottom corners. Aha: a splitter works on a blend just like on a pure fluid — turn the upper tee to catch both sources and the lower tee to open left and right. `B.R / └┬┘ / ┌┴┐ / p.p`
+- **L50 · practise** (5x4, par 8) — swapping through a blend while a third fluid drops straight through it. Blue and red pour into one bar that green crosses on the overpass, and the two filters hand each colour to the OPPOSITE side. Aha: the overpass keeps green out of the shared bar; the left tee is geared to green's drop, so its half turn leaves green's straight standing, and the two corners under the sources turn as one pair. `B.G.R / └┬+┬┘ / .│││. / .rgb.`
+- **L51 · practise** (5x3, par 10) — the long way round a shared loop. Blue's drain sits inside the loop right under a blue-filter door, one step from the source — but the short way up is barred by red's filter. Aha: blue must run all the way round the loop, through red's half of it, and come in through the door from the far side, while red takes the short way to its drain through its own filter. Both fluids share the bottom of the loop and nothing spoils. The two right-hand corners are geared. `r┐┌━┐ / B┤bR┃ / .└━┴┘`
+- **L52 · twist** (5x4, par 12) — sort, then blend again. All three sources feed one spine down the left, so everything in it is mixed — but the vat must get blue and red WITHOUT green. Aha: send red out along the top through the red filter and blue out through the blue filter, then let the two pure streams rejoin at the bolted tee in front of the vat; green leaves only through its own filter at the bottom. Filters don't just separate — they choose who gets to mix. `B┬─┐. / .├─┻p / G┤... / R┴━g.`
+- **L53 · combine** (5x4, par 12) — a self-crossing loop with the vat. The vat sits right above blue's source, but blue first has to run through the overpass, swing down to collect red at the bottom tee, and bring the blend back UP through the same overpass. Aha: the overpass lets the blend cross its own pipe without short-circuiting. Green hooks round on the right, and its corners are geared to the loop's: a half turn on the upper pair keeps green's straight upright. `p┐.G. / B+┐│. / R┴┘└┐ / ...g┘`
+- **L54 · finale** (5x5, par 13) — the vat is up in red's corner, blue's source and pure drain are down at the bottom, and green's bolted lane runs straight across the middle. Aha: blue climbs from its bottom tee up through the blue filter and over green on the overpass to meet red's tee — the filter lets blue rise but stops red falling into blue's drain. The corner pairs are geared diagonally across the board: line up one hook and its mirror comes with it. `R┓.┌p / .└┬┘. / G━+━g / B┐│┌b / .└┴┛.`
+
+## Chapter 10 — Grand Refinery (L55–L60)
+The finale chapter: the whole plant, every rule combined on the biggest boards.
+
+- **L55 · breather** (3x5, par 9) — two one-way valves. Red's lane runs along the top, blue's along the bottom, and the vat waits halfway up the spine between them. Aha: the red filter lets red fall to the vat but stops blue climbing to the red drain, and the blue filter does the same from below — both pure drains and the blend share one spine. `R┬r / .│. / p┤. / .│. / B┴b`
+- **L56 · practise** (5x3, par 10) — swap and blend in one trunk. Blue and red share the middle bar; the vat drinks the blend straight from the bar's centre tee, while the filters at the far end swap the pure colours to the opposite corners. Aha: one trunk can do three jobs at once — open the centre tee upward to the vat and both end tees toward the filters. The corner pairs are geared corner-to-filter across the board. `B┐p┌r / .├┴┤. / R┘.└b`
+- **L57 · practise** (5x3, par 10) — the walled-in vat. The vat sits inside green's loop, boxed in by green pipe on every side, and green's drain is right next to it. Aha: blend blue and red OUTSIDE the loop at the left tee, then send the blend straight through the overpass in green's wall — the overpass is the only door, and green flows across it without mixing. `B┐Gg┐ / R┴+p│ / ..└─┘`
+- **L58 · twist** (5x3, par 8) — a filter can starve the vat. A bolted bridge on the left is already built, and red's elbow needs just one turn to join blue's lane through it — but that joins red BEFORE the blue filter in the lane, which strips the red straight back out and the vat never sees it. Aha: turn red's elbow the other way and bring it up the right-hand column to join blue AFTER the filter, right before the vat. `B┳━┬┐ / .┃R││ / .┗└┘p`
+- **L59 · combine** (5x4, par 10) — vats, filters and an overpass with three fluids. Blue and red sit side by side on the bottom row and blend at once; the vat drinks from below, the blue drain hangs top-left behind its filter, and the red drain is top-right — on the far side of green's lane. Aha: red's way home climbs straight UP through the overpass in green's lane, and the red filter at the top keeps the blend's blue out of it. The left elbow and the right tee are geared, so both must be read together. `b..┌r / └┐G+g / .├─┤. / B┴Rp.`
+- **L60 · finale** (5x5, par 13) — FINALE: the whole refinery. Blue, green and red all pour into one spine on the left, so the spine is a three-colour mix. Aha: pull red out along the top through its filter and blue through the one below, rejoin them on the right and drop the blend straight down through the overpass into the vat — while green leaves through its own bolted filter and crosses that same overpass sideways to its drain. Sort, re-blend and cross, with geared corners tying red's return path to the spine. `B┬─━┐ / .┣─┐┃ / G┤.├┘ / .├━+g / .R.p.`
 

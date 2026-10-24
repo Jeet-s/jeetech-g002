@@ -3,8 +3,8 @@ import { StyleSheet, useWindowDimensions } from "react-native";
 import { Canvas, Group, RoundedRect, Circle } from "@shopify/react-native-skia";
 import { Easing, useDerivedValue, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 
-// Flow Forge fluids (#2EC4FF / #FF5D5D) + forge orange + gold: the celebration echoes the pipes on the board.
-const COLORS = ["#FFC23D", "#2EC4FF", "#FF5D5D", "#D97A2B", "#F2F6FA", "#8EDCFF"];
+// Flow Forge fluids (cyan, lime, amber, violet) + brass gold: the celebration echoes the pipes on the board.
+const COLORS = ["#FFC23D", "#12D1E6", "#6EE06F", "#FFB24D", "#B16BFF", "#F2F7FF"];
 
 interface P { vx: number; vy: number; spin: number; size: number; color: string; round: boolean; delay: number }
 

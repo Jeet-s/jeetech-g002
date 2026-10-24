@@ -4,16 +4,16 @@ import { LinearGradient } from "expo-linear-gradient";
 import { fonts, palette, radius, shadow, shadowStrong, springs, type } from "./theme";
 import { NineSlice } from "./Plate";
 import { GLYPH_ICONS, Icon, type IconName } from "./Icon";
-import { art } from "../art";
+import { sprites } from "../sprites";
 import { feedback, type Sfx } from "../audio/sfx";
 
 /**
- * Button hierarchy from the art direction:
- *  primary   — orange plate (#D97A2B) with a strong soft shadow and white label
- *  secondary — brushed-steel plate with a lighter edge
- *  tertiary  — ghost outline
- * Older names map onto the hierarchy: accent → primary, light → secondary,
- * neutral → tertiary.
+ * Button hierarchy from the art direction (every face is the button_primary art, nine-sliced, baked recolours):
+ *  primary   — the cyan-to-teal glass plate with a strong soft shadow and white label
+ *  secondary — the same plate in warm amber
+ *  tertiary  — the plate in graphite (quiet actions)
+ *  danger    — the plate in red
+ * Older names map onto the hierarchy: accent → primary, light → secondary, neutral → tertiary.
  */
 type Variant = "primary" | "secondary" | "tertiary" | "danger" | "accent" | "light" | "neutral";
 type Kind = "primary" | "secondary" | "tertiary" | "danger";
@@ -24,22 +24,16 @@ const KIND: Record<Variant, Kind> = {
   danger: "danger",
 };
 
-const ORANGE = { w: 512, h: 507, cap: { l: 120, t: 110, r: 120, b: 130 } };
-const STEEL = { w: 512, h: 186, cap: { l: 80, t: 66, r: 80, b: 76 } };
+const FACE: Record<Kind, { src: number; w: number; h: number; cap: { l: number; t: number; r: number; b: number } }> = {
+  primary: { src: sprites.button.teal, w: 381, h: 512, cap: { l: 72, t: 72, r: 72, b: 84 } },
+  secondary: { src: sprites.button.amber, w: 190, h: 256, cap: { l: 36, t: 36, r: 36, b: 42 } },
+  tertiary: { src: sprites.button.graphite, w: 190, h: 256, cap: { l: 36, t: 36, r: 36, b: 42 } },
+  danger: { src: sprites.button.red, w: 190, h: 256, cap: { l: 36, t: 36, r: 36, b: 42 } },
+};
 
 function Face({ kind, h }: { kind: Kind; h: number }) {
-  if (kind === "primary") {
-    return <NineSlice source={art.button_primary_orange} w={ORANGE.w} h={ORANGE.h} cap={ORANGE.cap} scale={(h * 0.82) / (ORANGE.cap.t + ORANGE.cap.b)} style={StyleSheet.absoluteFill} />;
-  }
-  if (kind === "secondary") {
-    return <NineSlice source={art.button_secondary_steel} w={STEEL.w} h={STEEL.h} cap={STEEL.cap} scale={(h * 0.86) / (STEEL.cap.t + STEEL.cap.b)} style={StyleSheet.absoluteFill} />;
-  }
-  if (kind === "danger") {
-    return (
-      <LinearGradient colors={["#FF7C70", palette.danger, palette.dangerDark]} locations={[0, 0.5, 1]} style={[StyleSheet.absoluteFill, styles.dangerFace]} />
-    );
-  }
-  return <View style={[StyleSheet.absoluteFill, styles.ghost]} />;
+  const f = FACE[kind];
+  return <NineSlice source={f.src} w={f.w} h={f.h} cap={f.cap} scale={(h * 0.8) / (f.cap.t + f.cap.b)} style={StyleSheet.absoluteFill} />;
 }
 
 /**
@@ -74,12 +68,13 @@ export function GameButton({
   const sweep = useSharedValue(-1);
   const glow = useSharedValue(0);
   const face = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.06 * press.value }, { translateY: 2 * press.value }] }));
+  const pressShade = useAnimatedStyle(() => ({ opacity: press.value * 0.28 }));
   const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value, transform: [{ scale: 1 + (1 - glow.value) * 0.06 }] }));
   const sweepStyle = useAnimatedStyle(() => ({ opacity: sweep.value > -1 && sweep.value < 1 ? 1 : 0, transform: [{ translateX: sweep.value * 220 }, { rotate: "18deg" }] }));
   const h = size === "lg" ? 64 : size === "sm" ? 48 : 56;
   const fs = size === "lg" ? 23 : size === "sm" ? 17 : 20;
   const is = size === "lg" ? 26 : size === "sm" ? 20 : 23;
-  const textColor = kind === "tertiary" ? palette.inkSoft : palette.onPrimary;
+  const textColor = palette.onPrimary;
 
   // A lone glyph label (e.g. "⚙") renders as an icon.
   let iconName: IconName | undefined;
@@ -110,15 +105,17 @@ export function GameButton({
       accessibilityRole="button"
       accessibilityLabel={label && !GLYPH_ICONS[label] ? label : iconName}
     >
-      <Animated.View pointerEvents="none" style={[styles.glow, { height: h + 6, borderRadius: radius.lg + 3 }, kind === "danger" ? styles.glowDanger : kind === "primary" ? styles.glowPrimary : null, glowStyle]} />
-      <Animated.View style={[styles.body, { height: h, borderRadius: radius.lg }, kind === "primary" ? shadowStrong : kind === "tertiary" ? null : shadow, face]}>
+      <Animated.View pointerEvents="none" style={[styles.glow, { height: h + 6, borderRadius: radius.lg + 3 }, kind === "danger" ? styles.glowDanger : kind === "primary" ? styles.glowPrimary : kind === "secondary" ? styles.glowSecondary : null, glowStyle]} />
+      <Animated.View style={[styles.body, { height: h, borderRadius: radius.lg }, kind === "primary" ? shadowStrong : shadow, face]}>
         <Face kind={kind} h={h} />
+        {/* pressed: the glossy topcoat darkens as the plate pushes in */}
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.press, { borderRadius: radius.lg }, pressShade]} />
         <View style={[StyleSheet.absoluteFill, { borderRadius: radius.lg, overflow: "hidden" }]} pointerEvents="none">
           <Animated.View style={[styles.sweep, sweepStyle]}>
             <LinearGradient colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.38)", "rgba(255,255,255,0)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
           </Animated.View>
         </View>
-        <View style={[styles.content, { paddingHorizontal: size === "sm" ? 12 : size === "lg" ? 24 : 16, paddingBottom: kind === "primary" ? 3 : 1 }]}>
+        <View style={[styles.content, { paddingHorizontal: size === "sm" ? 12 : size === "lg" ? 24 : 16, paddingBottom: Math.round(h * 0.06) }]}>
           {iconNode}
           {text ? (
             <Text
@@ -126,7 +123,7 @@ export function GameButton({
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
-              style={[type.button, styles.label, { color: textColor, fontSize: fs, letterSpacing: -0.01 * fs }, kind !== "tertiary" && styles.labelShadow]}
+              style={[type.button, styles.label, { color: textColor, fontSize: fs, letterSpacing: -0.01 * fs }, styles.labelShadow]}
             >
               {text}
             </Text>
@@ -144,21 +141,21 @@ export function GameButton({
 
 const styles = StyleSheet.create({
   body: { justifyContent: "center" },
+  press: { backgroundColor: "#04121A", margin: 3 },
   content: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   label: { flexShrink: 1, textAlign: "center" },
-  labelShadow: { textShadowColor: "rgba(0,0,0,0.35)", textShadowRadius: 3, textShadowOffset: { width: 0, height: 1 } },
-  ghost: { borderRadius: radius.lg, borderWidth: 2, borderColor: "rgba(142,167,178,0.45)", backgroundColor: "rgba(15,26,36,0.35)" },
-  dangerFace: { borderRadius: radius.lg, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
+  labelShadow: { textShadowColor: "rgba(0,0,0,0.45)", textShadowRadius: 3, textShadowOffset: { width: 0, height: 1.5 } },
   glow: {
-    position: "absolute", left: -3, right: -3, top: -3, borderWidth: 2, borderColor: palette.accent,
-    shadowColor: palette.accent, shadowOpacity: 0.9, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
+    position: "absolute", left: -3, right: -3, top: -3, borderWidth: 2, borderColor: palette.glow,
+    shadowColor: palette.glow, shadowOpacity: 0.9, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
   },
-  glowPrimary: { borderColor: "#FFB36B", shadowColor: palette.primary },
+  glowPrimary: { borderColor: "#9FF4FF", shadowColor: palette.primary },
+  glowSecondary: { borderColor: "#FFD9A0", shadowColor: palette.secondary },
   glowDanger: { borderColor: "#FFB0A8", shadowColor: palette.danger },
   sweep: { position: "absolute", top: -20, bottom: -20, left: -60, width: 60 },
   badge: {
     position: "absolute", top: -6, right: -6, minWidth: 24, height: 24, paddingHorizontal: 6, borderRadius: 12,
-    backgroundColor: palette.accentDark, alignItems: "center", justifyContent: "center",
+    backgroundColor: palette.secondaryDark, alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: palette.ink, ...shadow, elevation: 16,
   },
   badgeText: { ...type.number, fontFamily: fonts.display, fontSize: 12, color: palette.ink, includeFontPadding: false },

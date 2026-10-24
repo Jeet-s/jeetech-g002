@@ -1,168 +1,152 @@
 {
-  "style": "Premium, industrial-modern workshop lit by cool top-down area lights and a warm rim light, with materials that feel tactile but never noisy: satin-brushed dark steel plates and anodized teal bezels, beveled 2\u20133 px highlights on every hard edge, and subtle micro-scratches catching speculars; pipes are semi-gloss painted metal with crisp chamfers and soft occlusion in joints, liquids read as luminous gel with inner glow and faint bubbles; depth comes from a raised board tray with inner shadow and parallaxed dust motes over a gentle vignette; mood is focused, calm, and technical\u2014high contrast on the puzzle, restrained glow accents elsewhere, everything tuned for quick readability in motion.",
+  "style": "Premium, tactile PBR rendering that fuses Royal Match’s candy polish with Monument Valley’s calm clarity and Homescapes’ warmth: forged brass and gunmetal housings with micro‑beveled edges, soft brushed anisotropy, and tight rim lights; translucent glass/acrylic pipe cores carrying luminous colored liquid with internal bloom and faint bubbles; clean contact shadows and ambient occlusion in every socket; subtle subsurface in rubber gaskets; gently graded studio lighting (cool top key, warm under‑bounce) to separate planes; edges stay crisp, forms read in two tones plus specular, backgrounds defocus for depth; mood is cozy workshop-at-dusk—soothing, clever, and reassuringly premium.",
   "palette": [
-    "#0F1A24",
-    "#274454",
-    "#2EC4FF",
-    "#FF5D5D",
-    "#D97A2B",
-    "#8EA7B2"
+    "#0B1021",
+    "#0F2C49",
+    "#12D1E6",
+    "#FFB24D",
+    "#6EE06F",
+    "#B16BFF"
   ],
   "ui_palette": {
-    "primary": "#D97A2B",
-    "primaryDark": "#A85E1F",
-    "secondary": "#4E5E68",
-    "secondaryDark": "#324049",
-    "accent": "#2EC4FF",
-    "accentDark": "#108AB4",
-    "bgTop": "#22313C",
-    "bgBottom": "#0F1A24",
-    "ink": "#F2F6FA"
+    "primary": "#12D1E6",
+    "primaryDark": "#0A7A8C",
+    "secondary": "#FFB24D",
+    "secondaryDark": "#C7741C",
+    "accent": "#B16BFF",
+    "accentDark": "#6A2FCF",
+    "bgTop": "#0B1021",
+    "bgBottom": "#0F2C49",
+    "ink": "#F2F7FF"
   },
   "assets": [
     {
-      "id": "background_chapter_industrial_steel_teal",
+      "id": "bg_workshop_dawn",
       "kind": "background",
-      "file": "background_chapter_industrial_steel_teal.png",
-      "usage": "chapter and gameplay backdrop",
+      "file": "bg_workshop_dawn.png",
+      "usage": "chapter_1_background",
       "width": 1080,
       "height": 1920
     },
     {
-      "id": "board_frame_tray",
-      "kind": "ui",
-      "file": "board_frame_tray.png",
-      "usage": "puzzle board bezel and tray",
-      "width": 512,
-      "height": 508
+      "id": "bg_nightshift_neon",
+      "kind": "background",
+      "file": "bg_nightshift_neon.png",
+      "usage": "chapter_2_background",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "id": "board_tray",
+      "kind": "sprite",
+      "file": "board_tray.png",
+      "usage": "central_board_container",
+      "width": 422,
+      "height": 512
+    },
+    {
+      "id": "tile_slot",
+      "kind": "sprite",
+      "file": "tile_slot.png",
+      "usage": "empty_cell_placeholder",
+      "width": 510,
+      "height": 512
     },
     {
       "id": "pipe_straight",
       "kind": "sprite",
       "file": "pipe_straight.png",
-      "usage": "gameplay tile piece",
+      "usage": "piece_straight_segment",
       "width": 512,
-      "height": 225
+      "height": 304
     },
     {
       "id": "pipe_elbow",
       "kind": "sprite",
       "file": "pipe_elbow.png",
-      "usage": "gameplay tile piece",
-      "width": 451,
-      "height": 512
-    },
-    {
-      "id": "pipe_tee",
-      "kind": "sprite",
-      "file": "pipe_tee.png",
-      "usage": "gameplay tile piece",
+      "usage": "piece_elbow_segment",
       "width": 512,
-      "height": 512
+      "height": 179
     },
     {
-      "id": "tile_blocker",
+      "id": "pipe_t_junction",
       "kind": "sprite",
-      "file": "tile_blocker.png",
-      "usage": "blocked cell iconography on grid",
+      "file": "pipe_t_junction.png",
+      "usage": "piece_t_segment",
       "width": 512,
-      "height": 504
+      "height": 199
     },
     {
-      "id": "endpoint_source_blue",
+      "id": "pipe_endcap",
       "kind": "sprite",
-      "file": "endpoint_source_blue.png",
-      "usage": "blue fluid source tile",
-      "width": 378,
-      "height": 512
+      "file": "pipe_endcap.png",
+      "usage": "dead_end_piece",
+      "width": 512,
+      "height": 233
     },
     {
-      "id": "endpoint_source_red",
+      "id": "pipe_valve",
       "kind": "sprite",
-      "file": "endpoint_source_red.png",
-      "usage": "red fluid source tile",
-      "width": 391,
-      "height": 512
-    },
-    {
-      "id": "endpoint_drain_blue",
-      "kind": "sprite",
-      "file": "endpoint_drain_blue.png",
-      "usage": "blue fluid drain tile",
-      "width": 511,
-      "height": 512
-    },
-    {
-      "id": "endpoint_drain_red",
-      "kind": "sprite",
-      "file": "endpoint_drain_red.png",
-      "usage": "red fluid drain tile",
-      "width": 510,
-      "height": 512
+      "file": "pipe_valve.png",
+      "usage": "interactive_valve_piece",
+      "width": 512,
+      "height": 295
     },
     {
       "id": "hud_top_bar",
       "kind": "ui",
       "file": "hud_top_bar.png",
-      "usage": "compact HUD container",
+      "usage": "status_bar_container",
       "width": 512,
-      "height": 271
+      "height": 224
     },
     {
-      "id": "button_primary_orange",
+      "id": "button_primary",
       "kind": "ui",
-      "file": "button_primary_orange.png",
-      "usage": "primary CTAs like Hint",
-      "width": 512,
-      "height": 507
-    },
-    {
-      "id": "button_secondary_steel",
-      "kind": "ui",
-      "file": "button_secondary_steel.png",
-      "usage": "secondary CTAs like Restart",
-      "width": 512,
-      "height": 186
-    },
-    {
-      "id": "icon_reward_wrench",
-      "kind": "ui",
-      "file": "icon_reward_wrench.png",
-      "usage": "rewards and progress gates",
-      "width": 449,
+      "file": "button_primary.png",
+      "usage": "primary_cta_buttons",
+      "width": 381,
       "height": 512
     },
     {
-      "id": "fx_glow_sweep",
+      "id": "reward_gear_token",
+      "kind": "sprite",
+      "file": "reward_gear_token.png",
+      "usage": "soft_currency_icon",
+      "width": 494,
+      "height": 512
+    },
+    {
+      "id": "fx_sparkle_burst",
       "kind": "fx",
-      "file": "fx_glow_sweep.png",
-      "usage": "connection completion effect",
-      "width": 70,
+      "file": "fx_sparkle_burst.png",
+      "usage": "connection_success_vfx",
+      "width": 481,
       "height": 512
     },
     {
-      "id": "fx_particles_pack",
+      "id": "fx_flow_glow",
       "kind": "fx",
-      "file": "fx_particles_pack.png",
-      "usage": "bubbles and error pulse",
-      "width": 482,
+      "file": "fx_flow_glow.png",
+      "usage": "completed_path_highlight",
+      "width": 110,
       "height": 512
     },
     {
-      "id": "hud_plate_steel",
-      "kind": "ui",
-      "file": "hud_plate_steel.png",
-      "usage": "plain brushed-steel plate composed from hud_top_bar (HUD, pills, banners)",
-      "width": 512,
-      "height": 128
+      "id": "title_hero_key_art",
+      "kind": "character",
+      "file": "title_hero_key_art.png",
+      "usage": "app_store_promo_and_title_screen",
+      "width": 401,
+      "height": 512
     },
     {
       "id": "logo",
       "kind": "ui",
       "file": "logo.png",
-      "usage": "the game logo \u2014 title/home screen",
-      "width": 1181,
-      "height": 789
+      "usage": "the game logo — title/home screen and anywhere the name appears",
+      "width": 900,
+      "height": 564
     }
   ],
   "legacy": []
