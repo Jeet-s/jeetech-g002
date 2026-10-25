@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "PipePath: Logic Puzzles",
+    "name": "Pipe Puzzle Game",
     "slug": "flow-forge-pipes-pressure",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "android": {
       "package": "com.jeetech.g002",
-      "versionCode": 5,
+      "versionCode": 6,
       "permissions": [],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -15,7 +15,7 @@
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/store/adaptive-foreground.png",
-        "backgroundColor": "#3b459d"
+        "backgroundColor": "#0156de"
       },
       "googleServicesFile": "./google-services.json"
     },

@@ -1,9 +1,9 @@
-# PipePath: Logic Puzzles
+# Pipe Puzzle Game
 
-Solve logic puzzles offline by rotating pipes, filters and mixers across 60
+Rotate pipes, filters and mixers to solve 60 offline logic puzzles.
 
 - Google Play: https://play.google.com/store/apps/details?id=com.jeetech.g002
 - Privacy policy: https://jeet-s.github.io/jeetech-g002/privacy.html
-- Current version: 1.0.4
+- Current version: 1.0.5
 
 `game/` is the Expo (React Native) source as shipped; `store/` holds the listing and graphics.

@@ -26,7 +26,7 @@ export function SettingsPopup({ visible, onClose, privacyUrl }: { visible: boole
     const ok = await notify.ask("A daily nudge when a fresh Daily Pipework board is ready");
     store.set({ reminders: ok });
     if (ok) notify.daily("daily-pipework", { hour: 18, minute: 0 }, { title: "Today's Daily Pipework is ready", body: "A fresh remixed board is waiting. Keep your streak flowing!" });
-    setReminderNote(ok ? "We'll remind you at 6 pm when the daily board is ready." : "Notifications are off for Flow Forge in your phone's settings.");
+    setReminderNote(ok ? "We'll remind you at 6 pm when the daily board is ready." : "Notifications are off for this game in your phone's settings.");
   }
   return (
     <Popup visible={visible} title="Settings" onClose={onClose}>
