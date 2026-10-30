@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "Pipe Puzzle Game",
+    "name": "Flow Forge",
     "slug": "flow-forge-pipes-pressure",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "android": {
       "package": "com.jeetech.g002",
-      "versionCode": 6,
+      "versionCode": 7,
       "permissions": [],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
